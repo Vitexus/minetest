@@ -8,7 +8,7 @@ Uploaders:
  Dominik George <natureshadow@debian.org>
 Build-Depends:
  cmake,
- debhelper-compat (= 13),
+ debhelper-compat (>= 12),
  gettext,
  libbz2-dev,
  libcurl4-gnutls-dev,
