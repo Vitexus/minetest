@@ -1,0 +1,6 @@
+minetest-data_5.5.1_all.deb games optional
+minetest-dbgsym_5.5.1_amd64.deb debug optional automatic=yes
+minetest-server-dbgsym_5.5.1_amd64.deb debug optional automatic=yes
+minetest-server_5.5.1_amd64.deb games optional
+minetest_5.5.1_amd64.buildinfo games optional
+minetest_5.5.1_amd64.deb games optional

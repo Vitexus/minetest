@@ -1,0 +1,46 @@
+#!/usr/bin/make -f
+
+# avoid useless dependencies
+export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
+
+# build-hardening flags
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+override_dh_auto_configure:
+	dh_auto_configure -- \
+		-DRUN_IN_PLACE=0 \
+		-DCMAKE_VERBOSE_MAKEFILE=ON \
+		-DENABLE_SYSTEM_JSONCPP=1 \
+		-DENABLE_SYSTEM_GMP=1 \
+		-DENABLE_SPATIAL=ON \
+		-DJSON_INCLUDE_DIR=/usr/include/jsoncpp \
+		-DENABLE_GETTEXT=1 \
+		-DENABLE_FREETYPE=1 \
+		-DFREETYPE_INCLUDE_DIR_freetype2=/usr/include/freetype2 \
+		-DFREETYPE_INCLUDE_DIR_ft2build=/usr/include \
+		-DENABLE_LEVELDB=1 \
+		-DENABLE_POSTGRESQL=1 \
+		-DLEVELDB_INCLUDE_DIR=/usr/include/leveldb \
+		-DCUSTOM_LOCALEDIR=/usr/share/locale \
+		-DCUSTOM_SHAREDIR=/usr/share/games/minetest \
+		-DCMAKE_INSTALL_PREFIX=/usr \
+		-DBUILD_SERVER=1 \
+		-DCMAKE_BUILD_TYPE=Release
+
+override_dh_installchangelogs:
+	dh_installchangelogs debian/changelog.upstream
+
+override_dh_install:
+	find . -iname "license.txt" -delete
+	dh_install
+
+override_dh_missing:
+	dh_missing --list-missing
+
+override_dh_clean:
+	dh_clean
+	$(RM) -r bin
+	$(RM) -r lib/jsoncpp lib/gmp
+
+%:
+	dh ${@}

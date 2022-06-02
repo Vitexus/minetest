@@ -1,0 +1,12 @@
+#!/bin/sh
+
+set -e
+
+
+if [ "$1" = "purge" ] ; then
+    rm -rf /var/games/minetest-server
+    rm -rf /var/log/minetest
+    rmdir --ignore-fail-on-non-empty /var/games
+fi
+
+#DEBHELPER#

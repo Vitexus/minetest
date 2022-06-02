@@ -1,0 +1,6 @@
+version=4
+opts=dversionmangle=s/\+(repack|dfsg|ds|deb)\d*$// \
+https://github.com/minetest/minetest/tags \
+  .*/(\d[\d\.]+)\.tar\.gz \
+  debian sh debian/repack.sh
+

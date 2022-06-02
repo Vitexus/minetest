@@ -1,0 +1,100 @@
+Source: minetest
+Section: games
+Priority: optional
+Maintainer: Debian Games Team <pkg-games-devel@lists.alioth.debian.org>
+Uploaders:
+ Martin Quinson <mquinson@debian.org>,
+ Markus Koschany <apo@debian.org>,
+ Dominik George <natureshadow@debian.org>
+Build-Depends:
+ cmake,
+ debhelper-compat (= 13),
+ gettext,
+ libbz2-dev,
+ libcurl4-gnutls-dev,
+ libfreetype6-dev,
+ libglu1-mesa-dev,
+ libgmp-dev,
+ libirrlicht-dev (>= 1.7.0),
+ libjpeg-dev,
+ libjsoncpp-dev,
+ libleveldb-dev,
+ libluajit-5.1-dev [i386 amd64 kfreebsd-i386 armel armhf powerpc powerpcspe mips] | liblua5.1-dev,
+ libogg-dev,
+ libopenal-dev,
+ libpng-dev,
+ libpq-dev,
+ libspatialindex-dev,
+ libsqlite3-dev,
+ libvorbis-dev,
+ libx11-dev,
+ libxxf86vm-dev,
+ postgresql-server-dev-all,
+ zlib1g-dev
+Standards-Version: 4.6.0
+Homepage: https://www.minetest.net/
+Vcs-Git: https://salsa.debian.org/games-team/minetest.git
+Vcs-Browser: https://salsa.debian.org/games-team/minetest
+Rules-Requires-Root: no
+
+Package: minetest
+Architecture: any
+Depends:
+ minetest-data (= ${source:Version}),
+ ${misc:Depends},
+ ${shlibs:Depends}
+Conflicts:
+ minetestc55
+Suggests:
+ minetest-mod-moreblocks,
+ minetest-mod-moreores,
+ minetest-mod-pipeworks,
+ minetest-server,
+ minetestmapper
+Description: Multiplayer infinite-world block sandbox
+ Minetest is a minecraft-inspired game written from scratch and licensed
+ under the LGPL (version 2.1 or later). It supports both survival and creative
+ modes along with multiplayer support, dynamic lighting, and an "infinite" map
+ generator.
+
+Package: minetest-server
+Architecture: any
+Depends:
+ adduser,
+ lsb-base (>= 3.0-6),
+ minetest-data (= ${source:Version}),
+ ${misc:Depends},
+ ${shlibs:Depends}
+Pre-Depends:
+ ${misc:Pre-Depends}
+Description: Multiplayer infinite-world block sandbox (server)
+ Minetest is a minecraft-inspired game written from scratch and licensed
+ under the LGPL (version 2.1 or later). It supports both survival and creative
+ modes along with multiplayer support, dynamic lighting, and an "infinite" map
+ generator.
+ .
+ This is the minetest server package.
+
+Package: minetest-data
+Architecture: all
+Multi-Arch: foreign
+Depends:
+ fonts-croscore,
+ fonts-droid-fallback,
+ ${misc:Depends}
+Breaks:
+ minetest (<< 0.4.14+repack-1),
+ minetest-common
+Conflicts:
+ minetest-common
+Replaces:
+ minetest (<< 0.4.14+repack-1),
+ minetest-common
+Description: Multiplayer infinite-world block sandbox (data files)
+ Minetest is a minecraft-inspired game written from scratch and licensed
+ under the LGPL (version 2.1 or later). It supports both survival and creative
+ modes along with multiplayer support, dynamic lighting, and an "infinite" map
+ generator.
+ .
+ These are the files used by both client and server packages, such as
+ the textures and other graphical files and the standard mods.
