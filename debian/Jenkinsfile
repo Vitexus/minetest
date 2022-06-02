@@ -2,7 +2,7 @@
 
 
 String[] architectures = ['amd64']
-String[] distributions = ['debian:bullseye', 'debian:bookworm', 'ubuntu:focal', 'ubuntu:hirsute', 'ubuntu:impish', 'ubuntu:jammy']
+String[] distributions = ['debian:buster', 'debian:bullseye', 'debian:bookworm', 'ubuntu:focal', 'ubuntu:hirsute', 'ubuntu:impish', 'ubuntu:jammy']
 
 String vendor = 'vitexsoftware'
 String distribution = ''
@@ -19,6 +19,8 @@ node() {
         stage('SCM Checkout') {
             checkout scm
             def control = readFile( file:  env.WORKSPACE + "/debian/control")
+            sh 'git clone --depth 1 https://github.com/minetest/minetest_game.git games/minetest_game'
+            sh 'git clone --depth 1 https://github.com/minetest/irrlicht.git lib/irrlichtmt'
             def lines = control.readLines() 
             for(line in lines) {
                 if (line.trim()) {
@@ -32,7 +34,6 @@ node() {
                     }
                 }
             }
-
         }
     }
 }
