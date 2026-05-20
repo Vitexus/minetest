@@ -1,21 +1,6 @@
-/*
-Minetest
-Copyright (C) 2010-2020 Minetest core development team
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2010-2020 Minetest core development team
 
 #include "serverinventorymgr.h"
 #include "map.h"
@@ -27,14 +12,6 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 ServerInventoryManager::ServerInventoryManager() : InventoryManager()
 {
-}
-
-ServerInventoryManager::~ServerInventoryManager()
-{
-	// Delete detached inventories
-	for (auto &detached_inventory : m_detached_inventories) {
-		delete detached_inventory.second.inventory;
-	}
 }
 
 Inventory *ServerInventoryManager::getInventory(const InventoryLocation &loc)
@@ -51,7 +28,7 @@ Inventory *ServerInventoryManager::getInventory(const InventoryLocation &loc)
 
 		RemotePlayer *player = m_env->getPlayer(loc.name.c_str());
 		if (!player)
-			return NULL;
+			return nullptr;
 
 		PlayerSAO *playersao = player->getPlayerSAO();
 		return playersao ? playersao->getInventory() : nullptr;
@@ -67,13 +44,13 @@ Inventory *ServerInventoryManager::getInventory(const InventoryLocation &loc)
 		auto it = m_detached_inventories.find(loc.name);
 		if (it == m_detached_inventories.end())
 			return nullptr;
-		return it->second.inventory;
+		return it->second.inventory.get();
 	} break;
 	default:
 		sanity_check(false); // abort
 		break;
 	}
-	return NULL;
+	return nullptr;
 }
 
 void ServerInventoryManager::setInventoryModified(const InventoryLocation &loc)
@@ -95,7 +72,7 @@ void ServerInventoryManager::setInventoryModified(const InventoryLocation &loc)
 	case InventoryLocation::NODEMETA: {
 		MapEditEvent event;
 		event.type = MEET_BLOCK_NODE_METADATA_CHANGED;
-		event.p = loc.p;
+		event.setPositionModified(loc.p);
 		m_env->getMap().dispatchEvent(event);
 	} break;
 	case InventoryLocation::DETACHED: {
@@ -113,15 +90,16 @@ Inventory *ServerInventoryManager::createDetachedInventory(
 	if (m_detached_inventories.count(name) > 0) {
 		infostream << "Server clearing detached inventory \"" << name << "\""
 			   << std::endl;
-		delete m_detached_inventories[name].inventory;
+		m_detached_inventories[name].inventory.reset();
 	} else {
 		infostream << "Server creating detached inventory \"" << name << "\""
 			   << std::endl;
 	}
 
-	Inventory *inv = new Inventory(idef);
+	auto inv_u = std::make_unique<Inventory>(idef);
+	auto inv = inv_u.get();
 	sanity_check(inv);
-	m_detached_inventories[name].inventory = inv;
+	m_detached_inventories[name].inventory = std::move(inv_u);
 	if (!player.empty()) {
 		m_detached_inventories[name].owner = player;
 
@@ -131,7 +109,7 @@ Inventory *ServerInventoryManager::createDetachedInventory(
 		RemotePlayer *p = m_env->getPlayer(name.c_str());
 
 		// if player is connected, send him the inventory
-		if (p && p->getPeerId() != PEER_ID_INEXISTENT) {
+		if (p) {
 			m_env->getGameDef()->sendDetachedInventory(
 					inv, name, p->getPeerId());
 		}
@@ -152,14 +130,14 @@ bool ServerInventoryManager::removeDetachedInventory(const std::string &name)
 	if (inv_it == m_detached_inventories.end())
 		return false;
 
-	delete inv_it->second.inventory;
+	inv_it->second.inventory.reset();
 	const std::string &owner = inv_it->second.owner;
 
 	if (!owner.empty()) {
 		if (m_env) {
 			RemotePlayer *player = m_env->getPlayer(owner.c_str());
 
-			if (player && player->getPeerId() != PEER_ID_INEXISTENT)
+			if (player)
 				m_env->getGameDef()->sendDetachedInventory(
 						nullptr, name, player->getPeerId());
 		}
@@ -205,6 +183,6 @@ void ServerInventoryManager::sendDetachedInventories(const std::string &peer_nam
 				continue;
 		}
 
-		apply_cb(detached_inventory.first, detached_inventory.second.inventory);
+		apply_cb(detached_inventory.first, detached_inventory.second.inventory.get());
 	}
 }

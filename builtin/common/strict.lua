@@ -1,4 +1,4 @@
-local getinfo = debug.getinfo
+local debug_getinfo, rawget, rawset = debug.getinfo, rawget, rawset
 
 function core.global_exists(name)
 	if type(name) ~= "string" then
@@ -10,37 +10,42 @@ end
 
 local meta = {}
 local declared = {}
--- Key is source file, line, and variable name; seperated by NULs
+-- Key is source file, line, and variable name; separated by NULs
 local warned = {}
 
 function meta:__newindex(name, value)
-	local info = getinfo(2, "Sl")
-	local desc = ("%s:%d"):format(info.short_src, info.currentline)
-	if not declared[name] then
-		local warn_key = ("%s\0%d\0%s"):format(info.source,
-				info.currentline, name)
-		if not warned[warn_key] and info.what ~= "main" and
-				info.what ~= "C" then
-			core.log("warning", ("Assignment to undeclared "..
-					"global %q inside a function at %s.")
-				:format(name, desc))
-			warned[warn_key] = true
-		end
-		declared[name] = true
-	end
 	rawset(self, name, value)
+	if declared[name] then
+		return
+	end
+	declared[name] = true
+	local info = debug_getinfo(2, "Sl")
+	if info == nil or info.what == "C" or info.what == "main" then
+		return
+	end
+	local warn_key = ("%s\0%d\0%s"):format(info.source, info.currentline, name)
+	if not warned[warn_key] then
+		warned[warn_key] = true
+		core.log("warning", ("Assignment to undeclared global %q inside a function at %s:%d")
+				:format(name, info.short_src, info.currentline))
+	end
 end
 
 
 function meta:__index(name)
-	local info = getinfo(2, "Sl")
-	local warn_key = ("%s\0%d\0%s"):format(info.source, info.currentline, name)
-	if not declared[name] and not warned[warn_key] and info.what ~= "C" then
-		core.log("warning", ("Undeclared global variable %q accessed at %s:%s")
-				:format(name, info.short_src, info.currentline))
-		warned[warn_key] = true
+	if declared[name] then
+		return
 	end
-	return rawget(self, name)
+	local info = debug_getinfo(2, "Sl")
+	if info == nil or info.what == "C" then
+		return
+	end
+	local warn_key = ("%s\0%d\0%s"):format(info.source, info.currentline, name)
+	if not warned[warn_key] then
+		warned[warn_key] = true
+		core.log("warning", ("Undeclared global variable %q accessed at %s:%d")
+				:format(name, info.short_src, info.currentline))
+	end
 end
 
 setmetatable(_G, meta)

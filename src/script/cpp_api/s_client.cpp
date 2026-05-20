@@ -1,28 +1,15 @@
-/*
-Minetest
-Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
-Copyright (C) 2017 nerzhul, Loic Blot <loic.blot@unix-experience.fr>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
+// Copyright (C) 2017 nerzhul, Loic Blot <loic.blot@unix-experience.fr>
 
 #include "s_client.h"
 #include "s_internal.h"
 #include "client/client.h"
 #include "common/c_converter.h"
 #include "common/c_content.h"
+#include "lua_api/l_item.h"
+#include "itemdef.h"
 #include "s_item.h"
 
 void ScriptApiClient::on_mods_loaded()
@@ -123,21 +110,6 @@ void ScriptApiClient::on_hp_modification(int32_t newhp)
 	}
 }
 
-void ScriptApiClient::on_death()
-{
-	SCRIPTAPI_PRECHECKHEADER
-
-	// Get registered shutdown hooks
-	lua_getglobal(L, "core");
-	lua_getfield(L, -1, "registered_on_death");
-	// Call callbacks
-	try {
-		runCallbacks(0, RUN_CALLBACKS_MODE_FIRST);
-	} catch (LuaError &e) {
-		getClient()->setFatalError(e);
-	}
-}
-
 void ScriptApiClient::environment_step(float dtime)
 {
 	SCRIPTAPI_PRECHECKHEADER
@@ -154,39 +126,9 @@ void ScriptApiClient::environment_step(float dtime)
 	}
 }
 
-void ScriptApiClient::on_formspec_input(const std::string &formname,
-	const StringMap &fields)
-{
-	SCRIPTAPI_PRECHECKHEADER
-
-	// Get core.registered_on_chat_messages
-	lua_getglobal(L, "core");
-	lua_getfield(L, -1, "registered_on_formspec_input");
-	// Call callbacks
-	// param 1
-	lua_pushstring(L, formname.c_str());
-	// param 2
-	lua_newtable(L);
-	StringMap::const_iterator it;
-	for (it = fields.begin(); it != fields.end(); ++it) {
-		const std::string &name = it->first;
-		const std::string &value = it->second;
-		lua_pushstring(L, name.c_str());
-		lua_pushlstring(L, value.c_str(), value.size());
-		lua_settable(L, -3);
-	}
-	try {
-		runCallbacks(2, RUN_CALLBACKS_MODE_OR_SC);
-	} catch (LuaError &e) {
-		getClient()->setFatalError(e);
-	}
-}
-
 bool ScriptApiClient::on_dignode(v3s16 p, MapNode node)
 {
 	SCRIPTAPI_PRECHECKHEADER
-
-	const NodeDefManager *ndef = getClient()->ndef();
 
 	// Get core.registered_on_dignode
 	lua_getglobal(L, "core");
@@ -194,7 +136,7 @@ bool ScriptApiClient::on_dignode(v3s16 p, MapNode node)
 
 	// Push data
 	push_v3s16(L, p);
-	pushnode(L, node, ndef);
+	pushnode(L, node);
 
 	// Call functions
 	try {
@@ -210,15 +152,13 @@ bool ScriptApiClient::on_punchnode(v3s16 p, MapNode node)
 {
 	SCRIPTAPI_PRECHECKHEADER
 
-	const NodeDefManager *ndef = getClient()->ndef();
-
 	// Get core.registered_on_punchgnode
 	lua_getglobal(L, "core");
 	lua_getfield(L, -1, "registered_on_punchnode");
 
 	// Push data
 	push_v3s16(L, p);
-	pushnode(L, node, ndef);
+	pushnode(L, node);
 
 	// Call functions
 	try {

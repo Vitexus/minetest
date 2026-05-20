@@ -53,7 +53,7 @@ local test_object = {
 	end,
 	sunlight_propagates = true,
 	is_ground_content = false,
-	light_source = 0,
+	pos = vector.new(-1, -2, -3),
 }
 
 local function test_object_passing()
@@ -123,10 +123,10 @@ local function test_handle_async(cb)
 
 	core.handle_async(func, function(...)
 		if not deepequal(expect, {...}) then
-			cb("Values did not equal")
+			return cb("Values did not equal")
 		end
 		if core.get_last_run_mod() ~= expect[1] then
-			cb("Mod name not tracked correctly")
+			return cb("Mod name not tracked correctly")
 		end
 
 		-- Test passing of nil arguments and return values
@@ -134,7 +134,7 @@ local function test_handle_async(cb)
 			return a, b
 		end, function(a, b)
 			if b ~= 123 then
-				cb("Argument went missing")
+				return cb("Argument went missing")
 			end
 			cb()
 		end, nil, 123)
@@ -151,7 +151,7 @@ local function test_userdata_passing2(cb, _, pos)
 		return vm_:get_node_at(pos_)
 	end, function(ret)
 		if not deepequal(expect, ret) then
-			cb("Node data mismatch (one-way)")
+			return cb("Node data mismatch (one-way)")
 		end
 
 		-- VManip: test a roundtrip
@@ -159,10 +159,80 @@ local function test_userdata_passing2(cb, _, pos)
 			return vm_
 		end, function(vm2)
 			if not deepequal(expect, vm2:get_node_at(pos)) then
-				cb("Node data mismatch (roundtrip)")
+				return cb("Node data mismatch (roundtrip)")
 			end
 			cb()
 		end, vm)
 	end, vm, pos)
 end
 unittests.register("test_userdata_passing2", test_userdata_passing2, {map=true, async=true})
+
+local function test_portable_metatable_override()
+	assert(pcall(core.register_portable_metatable, "__builtin:vector", vector.metatable),
+			"Metatable name aliasing throws an error when it should be allowed")
+
+	assert(not pcall(core.register_portable_metatable, "__builtin:vector", {}),
+			"Illegal metatable overriding allowed")
+end
+unittests.register("test_portable_metatable_override", test_portable_metatable_override)
+
+local function test_portable_metatable_registration(cb)
+	local custom_metatable = {}
+	core.register_portable_metatable("unittests:custom_metatable", custom_metatable)
+
+	core.handle_async(function(x)
+		-- unittests.custom_metatable is registered in inside_async_env.lua
+		return getmetatable(x) == unittests.custom_metatable, x
+	end, function(metatable_preserved_async, table_after_roundtrip)
+		if not metatable_preserved_async then
+			return cb("Custom metatable not preserved (main -> async)")
+		end
+		if getmetatable(table_after_roundtrip) ~= custom_metatable then
+			return cb("Custom metable not preserved (after roundtrip)")
+		end
+		cb()
+	end, setmetatable({}, custom_metatable))
+end
+unittests.register("test_portable_metatable_registration", test_portable_metatable_registration, {async=true})
+
+local function test_vector_preserve(cb)
+	local vec = vector.new(1, 2, 3)
+	core.handle_async(function(x)
+		return x[1]
+	end, function(ret)
+		if ret ~= vec then -- fails if metatable was not preserved
+			return cb("Vector value mismatch")
+		end
+		cb()
+	end, {vec})
+end
+unittests.register("test_async_vector", test_vector_preserve, {async=true})
+
+local function test_async_job_replacement(cb)
+	core.ipc_set("unittests:end_blocking", nil)
+	local capacity = core.get_async_threading_capacity()
+	for _ = 1, capacity do
+		core.handle_async(function()
+			core.ipc_poll("unittests:end_blocking", 1000)
+		end, function() end)
+	end
+	local job = core.handle_async(function()
+	end, function()
+		return cb("Canceled async job ran")
+	end)
+	if not job:cancel() then
+		return cb("AsyncJob:cancel sanity check failed")
+	end
+	core.ipc_set("unittests:end_blocking", true)
+
+	-- Try to cancel a job that is already run.
+	job = core.handle_async(function(x)
+		return x
+	end, function(ret)
+		if job:cancel() then
+			return cb("AsyncJob:cancel canceled a completed job")
+		end
+		cb()
+	end, 1)
+end
+unittests.register("test_async_job_replacement", test_async_job_replacement, {async=true})

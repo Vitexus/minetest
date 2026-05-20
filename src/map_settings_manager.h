@@ -1,26 +1,12 @@
-/*
-Minetest
-Copyright (C) 2010-2013 kwolekr, Ryan Kwolek <kwolekr@minetest.net>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2010-2013 kwolekr, Ryan Kwolek <kwolekr@minetest.net>
 
 #pragma once
 
+#include <memory>
 #include <string>
-#include "settings.h"
+#include "settings.h" // SettingsHierarchy
 
 struct NoiseParams;
 struct MapgenParams;
@@ -50,10 +36,10 @@ public:
 	// Finalized map generation parameters
 	MapgenParams *mapgen_params = nullptr;
 
-	bool getMapSetting(const std::string &name, std::string *value_out);
+	bool getMapSetting(const std::string &name, std::string *value_out) const;
 
-	bool getMapSettingNoiseParams(
-		const std::string &name, NoiseParams *value_out);
+	bool getNoiseParams(const std::string &name,
+		NoiseParams *value_out) const;
 
 	// Note: Map config becomes read-only after makeMapgenParams() gets called
 	// (i.e. mapgen_params is non-NULL).  Attempts to set map config after
@@ -66,12 +52,16 @@ public:
 
 	bool loadMapMeta();
 	bool saveMapMeta();
+
+	/// @brief Finalizes and creates the mapgen params
 	MapgenParams *makeMapgenParams();
+	/// @brief Creates a copy of the mapgen params without making the manager immutable
+	MapgenParams *makeMapgenParamsCopy() const;
 
 private:
 	std::string m_map_meta_path;
 
 	SettingsHierarchy m_hierarchy;
-	Settings *m_defaults;
-	Settings *m_map_settings;
+	std::unique_ptr<Settings> m_defaults;
+	std::unique_ptr<Settings> m_map_settings;
 };

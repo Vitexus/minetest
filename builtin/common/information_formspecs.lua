@@ -15,13 +15,14 @@ local LIST_FORMSPEC_DESCRIPTION = [[
 		label[0,-0.1;%s]
 		tablecolumns[color;tree;text;text]
 		table[0,0.5;12.8,4.8;list;%s;%i]
-		box[0,5.5;12.8,1.5;#000]
-		textarea[0.3,5.5;13.05,1.9;;;%s]
+		box[0,5.5;12.8,1.5;]
+		textarea[0.35,5.55;12.9,1.7;;;%s]
 		button_exit[5,7;3,1;quit;%s]
 	]]
 
 local F = core.formspec_escape
 local S = core.get_translator("__builtin")
+local check_player_privs = core.check_player_privs
 
 
 -- CHAT COMMANDS FORMSPEC
@@ -57,19 +58,23 @@ local function build_chatcommands_formspec(name, sel, copy)
 		.. "any entry in the list.").. "\n" ..
 		S("Double-click to copy the entry to the chat history.")
 
-	local privs = core.get_player_privs(name)
 	for i, data in ipairs(mod_cmds) do
 		rows[#rows + 1] = COLOR_BLUE .. ",0," .. F(data[1]) .. ","
 		for j, cmds in ipairs(data[2]) do
-			local has_priv = privs[cmds[2].privs]
+			local has_priv = INIT == "client" or check_player_privs(name, cmds[2].privs)
 			rows[#rows + 1] = ("%s,1,%s,%s"):format(
 				has_priv and COLOR_GREEN or COLOR_GRAY,
 				cmds[1], F(cmds[2].params))
 			if sel == #rows then
 				description = cmds[2].description
 				if copy then
-					core.chat_send_player(name, S("Command: @1 @2",
-						core.colorize("#0FF", "/" .. cmds[1]), cmds[2].params))
+					local msg = S("Command: @1 @2",
+						core.colorize("#0FF", (INIT == "client" and "." or "/") .. cmds[1]), cmds[2].params)
+					if INIT == "client" then
+						core.display_chat_message(msg)
+					else
+						core.chat_send_player(name, msg)
+					end
 				end
 			end
 		end
@@ -111,26 +116,46 @@ end
 
 
 -- DETAILED CHAT COMMAND INFORMATION
+if INIT == "client" then
+	core.register_on_formspec_input(function(formname, fields)
+		if formname ~= "__builtin:help_cmds" or fields.quit then
+			return
+		end
 
-core.register_on_player_receive_fields(function(player, formname, fields)
-	if formname ~= "__builtin:help_cmds" or fields.quit then
-		return
-	end
+		local event = core.explode_table_event(fields.list)
+		if event.type ~= "INV" then
+			core.show_formspec("__builtin:help_cmds",
+				build_chatcommands_formspec(nil, event.row, event.type == "DCL"))
+		end
+	end)
+else
+	core.register_on_player_receive_fields(function(player, formname, fields)
+		if formname ~= "__builtin:help_cmds" or fields.quit then
+			return
+		end
 
-	local event = core.explode_table_event(fields.list)
-	if event.type ~= "INV" then
-		local name = player:get_player_name()
-		core.show_formspec(name, "__builtin:help_cmds",
-			build_chatcommands_formspec(name, event.row, event.type == "DCL"))
-	end
-end)
-
-function core.show_general_help_formspec(name)
-	core.show_formspec(name, "__builtin:help_cmds",
-		build_chatcommands_formspec(name))
+		local event = core.explode_table_event(fields.list)
+		if event.type ~= "INV" then
+			local name = player:get_player_name()
+			core.show_formspec(name, "__builtin:help_cmds",
+				build_chatcommands_formspec(name, event.row, event.type == "DCL"))
+		end
+	end)
 end
 
-function core.show_privs_help_formspec(name)
-	core.show_formspec(name, "__builtin:help_privs",
-		build_privs_formspec(name))
+function core.show_general_help_formspec(name)
+	if INIT == "client" then
+		core.show_formspec("__builtin:help_cmds",
+			build_chatcommands_formspec(name))
+	else
+		core.show_formspec(name, "__builtin:help_cmds",
+			build_chatcommands_formspec(name))
+	end
+end
+
+if INIT ~= "client" then
+	function core.show_privs_help_formspec(name)
+		core.show_formspec(name, "__builtin:help_privs",
+			build_privs_formspec(name))
+	end
 end

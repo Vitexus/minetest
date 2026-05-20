@@ -20,38 +20,33 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 package net.minetest.minetest;
 
-import android.Manifest;
+import android.annotation.SuppressLint;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 import android.view.View;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.annotation.NonNull;
+import androidx.annotation.RequiresApi;
 import androidx.annotation.StringRes;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
-
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
 
 import static net.minetest.minetest.UnzipService.*;
 
 public class MainActivity extends AppCompatActivity {
+	public static final String NOTIFICATION_CHANNEL_ID = "Minetest channel";
+	public static final int NOTIFICATION_ID_UNZIP = 1;
+	public static final int NOTIFICATION_ID_GAME = 2;
+
 	private final static int versionCode = BuildConfig.VERSION_CODE;
-	private final static int PERMISSIONS = 1;
-	private static final String[] REQUIRED_SDK_PERMISSIONS =
-			new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE};
 	private static final String SETTINGS = "MinetestSettings";
 	private static final String TAG_VERSION_CODE = "versionCode";
 
@@ -91,63 +86,30 @@ public class MainActivity extends AppCompatActivity {
 		}
 	};
 
+	@SuppressLint("UnspecifiedRegisterReceiverFlag")
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 		setContentView(R.layout.activity_main);
+
 		IntentFilter filter = new IntentFilter(ACTION_UPDATE);
-		registerReceiver(myReceiver, filter);
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+			registerReceiver(myReceiver, filter, RECEIVER_NOT_EXPORTED);
+		} else {
+			registerReceiver(myReceiver, filter);
+		}
+
 		mProgressBar = findViewById(R.id.progressBar);
 		mTextView = findViewById(R.id.textView);
 		sharedPreferences = getSharedPreferences(SETTINGS, Context.MODE_PRIVATE);
 
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
-				Build.VERSION.SDK_INT < Build.VERSION_CODES.R)
-			checkPermission();
-		else
-			checkAppVersion();
-	}
+		checkAppVersion();
 
-	private void checkPermission() {
-		final List<String> missingPermissions = new ArrayList<>();
-		for (final String permission : REQUIRED_SDK_PERMISSIONS) {
-			final int result = ContextCompat.checkSelfPermission(this, permission);
-			if (result != PackageManager.PERMISSION_GRANTED)
-				missingPermissions.add(permission);
-		}
-		if (!missingPermissions.isEmpty()) {
-			final String[] permissions = missingPermissions
-					.toArray(new String[0]);
-			ActivityCompat.requestPermissions(this, permissions, PERMISSIONS);
-		} else {
-			final int[] grantResults = new int[REQUIRED_SDK_PERMISSIONS.length];
-			Arrays.fill(grantResults, PackageManager.PERMISSION_GRANTED);
-			onRequestPermissionsResult(PERMISSIONS, REQUIRED_SDK_PERMISSIONS, grantResults);
-		}
-	}
-
-	@Override
-	public void onRequestPermissionsResult(int requestCode,
-									@NonNull String[] permissions, @NonNull int[] grantResults) {
-		if (requestCode == PERMISSIONS) {
-			for (int grantResult : grantResults) {
-				if (grantResult != PackageManager.PERMISSION_GRANTED) {
-					Toast.makeText(this, R.string.not_granted, Toast.LENGTH_LONG).show();
-					finish();
-					return;
-				}
-			}
-			checkAppVersion();
-		}
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+			createNotificationChannel();
 	}
 
 	private void checkAppVersion() {
-		if (!Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED)) {
-			Toast.makeText(this, R.string.no_external_storage, Toast.LENGTH_LONG).show();
-			finish();
-			return;
-		}
-
 		if (UnzipService.getIsRunning()) {
 			mProgressBar.setVisibility(View.VISIBLE);
 			mProgressBar.setIndeterminate(true);
@@ -170,6 +132,28 @@ public class MainActivity extends AppCompatActivity {
 		Intent intent = new Intent(this, GameActivity.class);
 		intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_CLEAR_TASK);
 		startActivity(intent);
+	}
+
+	@RequiresApi(Build.VERSION_CODES.O)
+	private void createNotificationChannel() {
+		NotificationManager notifyManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+		if (notifyManager == null)
+			return;
+
+		NotificationChannel notifyChannel = new NotificationChannel(
+			NOTIFICATION_CHANNEL_ID,
+			getString(R.string.notification_channel_name),
+			NotificationManager.IMPORTANCE_LOW
+		);
+		notifyChannel.setDescription(getString(R.string.notification_channel_description));
+		// Configure the notification channel without sound set
+		notifyChannel.setSound(null, null);
+		notifyChannel.enableLights(false);
+		notifyChannel.enableVibration(false);
+
+		// It is fine to always create the notification channel because creating a channel
+		// with the same ID is the same as overriding it (only its name and description).
+		notifyManager.createNotificationChannel(notifyChannel);
 	}
 
 	@Override

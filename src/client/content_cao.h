@@ -1,39 +1,34 @@
-/*
-Minetest
-Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #pragma once
 
-#include <map>
-#include "irrlichttypes_extrabloated.h"
-#include "clientobject.h"
-#include "object_properties.h"
-#include "itemgroup.h"
-#include "constants.h"
-#include <cassert>
+#include "EMaterialTypes.h"
+#include "IDummyTransformationSceneNode.h"
+#include "irrlichttypes.h"
 
-class Camera;
+#include "object_properties.h"
+#include "clientobject.h"
+#include "constants.h"
+#include "itemgroup.h"
+#include "client/tile.h"
+#include <cassert>
+#include <memory>
+
+namespace scene {
+	class IMeshSceneNode;
+	class IBillboardSceneNode;
+	class AnimatedMeshSceneNode;
+}
+
 class Client;
 struct Nametag;
 struct MinimapMarker;
+class WieldMeshSceneNode;
 
 /*
-	SmoothTranslator
+	SmoothTranslator and other helpers
 */
 
 template<typename T>
@@ -66,9 +61,20 @@ struct SmoothTranslatorWrappedv3f : SmoothTranslator<v3f>
 	void translate(f32 dtime);
 };
 
+struct MeshAnimationInfo {
+	u32 i; /// index of mesh buffer
+	int frame; /// last animation frame
+	TileLayer tile;
+};
+
+/*
+	GenericCAO
+*/
+
 class GenericCAO : public ClientActiveObject
 {
 private:
+
 	// Only set at initialization
 	std::string m_name = "";
 	bool m_is_player = false;
@@ -79,13 +85,24 @@ private:
 	scene::ISceneManager *m_smgr = nullptr;
 	Client *m_client = nullptr;
 	aabb3f m_selection_box = aabb3f(-BS/3.,-BS/3.,-BS/3., BS/3.,BS/3.,BS/3.);
+
+	// Visuals
 	scene::IMeshSceneNode *m_meshnode = nullptr;
-	scene::IAnimatedMeshSceneNode *m_animated_meshnode = nullptr;
+	scene::AnimatedMeshSceneNode *m_animated_meshnode = nullptr;
 	WieldMeshSceneNode *m_wield_meshnode = nullptr;
 	scene::IBillboardSceneNode *m_spritenode = nullptr;
 	scene::IDummyTransformationSceneNode *m_matrixnode = nullptr;
 	Nametag *m_nametag = nullptr;
 	MinimapMarker *m_marker = nullptr;
+	bool m_visuals_expired = false;
+	video::SColor m_last_light = video::SColor(0xFFFFFFFF);
+	bool m_is_visible = false;
+	std::vector<MeshAnimationInfo> m_meshnode_animation;
+
+	// Material
+	video::E_MATERIAL_TYPE m_material_type = video::EMT_INVALID;
+
+	// Movement
 	v3f m_position = v3f(0.0f, 10.0f * BS, 0);
 	v3f m_velocity;
 	v3f m_acceleration;
@@ -93,59 +110,55 @@ private:
 	u16 m_hp = 1;
 	SmoothTranslator<v3f> pos_translator;
 	SmoothTranslatorWrappedv3f rot_translator;
-	// Spritesheet/animation stuff
+
+	// Spritesheet stuff
 	v2f m_tx_size = v2f(1,1);
 	v2s16 m_tx_basepos;
 	bool m_initial_tx_basepos_set = false;
 	bool m_tx_select_horiz_by_yawpitch = false;
-	v2s32 m_animation_range;
+	bool m_animation_loop = true;
+	v2f m_animation_range;
 	float m_animation_speed = 15.0f;
 	float m_animation_blend = 0.0f;
-	bool m_animation_loop = true;
-	// stores position and rotation for each bone name
-	std::unordered_map<std::string, core::vector2d<v3f>> m_bone_position;
+	int m_anim_frame = 0;
+	int m_anim_num_frames = 1;
+	float m_anim_framelength = 0.2f;
+	float m_anim_timer = 0.0f;
 
-	int m_attachment_parent_id = 0;
-	std::unordered_set<int> m_attachment_child_ids;
+	// stores position and rotation for each bone name
+	BoneOverrideMap m_bone_override;
+
+	// Attachments
+	object_t m_attachment_parent_id = 0;
+	std::unordered_set<object_t> m_attachment_child_ids;
 	std::string m_attachment_bone = "";
 	v3f m_attachment_position;
 	v3f m_attachment_rotation;
 	bool m_attached_to_local = false;
 	bool m_force_visible = false;
 
-	int m_anim_frame = 0;
-	int m_anim_num_frames = 1;
-	float m_anim_framelength = 0.2f;
-	float m_anim_timer = 0.0f;
 	ItemGroupList m_armor_groups;
 	float m_reset_textures_timer = -1.0f;
 	// stores texture modifier before punch update
 	std::string m_previous_texture_modifier = "";
 	// last applied texture modifier
 	std::string m_current_texture_modifier = "";
-	bool m_visuals_expired = false;
 	float m_step_distance_counter = 0.0f;
-	video::SColor m_last_light = video::SColor(0xFFFFFFFF);
-	bool m_is_visible = false;
-	s8 m_glow = 0;
-	// Material
-	video::E_MATERIAL_TYPE m_material_type;
-	// Settings
-	bool m_enable_shaders = false;
 
 	bool visualExpiryRequired(const ObjectProperties &newprops) const;
 
 public:
+
 	GenericCAO(Client *client, ClientEnvironment *env);
 
 	~GenericCAO();
 
-	static ClientActiveObject* create(Client *client, ClientEnvironment *env)
+	static std::unique_ptr<ClientActiveObject> create(Client *client, ClientEnvironment *env)
 	{
-		return new GenericCAO(client, env);
+		return std::make_unique<GenericCAO>(client, env);
 	}
 
-	inline ActiveObjectType getType() const
+	inline ActiveObjectType getType() const override
 	{
 		return ACTIVEOBJECT_TYPE_GENERIC;
 	}
@@ -153,22 +166,19 @@ public:
 	{
 		return m_armor_groups;
 	}
-	void initialize(const std::string &data);
+	void initialize(const std::string &data) override;
 
 	void processInitData(const std::string &data);
 
-	bool getCollisionBox(aabb3f *toset) const;
+	bool getCollisionBox(aabb3f *toset) const override;
 
-	bool collideWithObjects() const;
+	bool collideWithObjects() const override;
 
-	virtual bool getSelectionBox(aabb3f *toset) const;
+	virtual bool getSelectionBox(aabb3f *toset) const override;
 
-	const v3f getPosition() const;
+	const v3f getPosition() const override final;
 
-	void setPosition(const v3f &pos)
-	{
-		pos_translator.val_current = pos;
-	}
+	const v3f getVelocity() const override final { return m_velocity; }
 
 	inline const v3f &getRotation() const { return m_rotation; }
 
@@ -176,9 +186,11 @@ public:
 
 	inline const ObjectProperties &getProperties() const { return m_prop; }
 
-	scene::ISceneNode *getSceneNode() const;
+	inline const std::string &getName() const { return m_name; }
 
-	scene::IAnimatedMeshSceneNode *getAnimatedMeshSceneNode() const;
+	scene::ISceneNode *getSceneNode() const override;
+
+	scene::AnimatedMeshSceneNode *getAnimatedMeshSceneNode() const override;
 
 	// m_matrixnode controls the position and rotation of the child node
 	// for all scene nodes, as a workaround for an Irrlicht problem with
@@ -205,9 +217,14 @@ public:
 		return m_prop.stepheight;
 	}
 
-	inline bool isLocalPlayer() const
+	inline bool isLocalPlayer() const override
 	{
 		return m_is_local_player;
+	}
+
+	inline bool isPlayer() const
+	{
+		return m_is_player;
 	}
 
 	inline bool isVisible() const
@@ -221,29 +238,28 @@ public:
 	}
 
 	void setChildrenVisible(bool toset);
-	void setAttachment(int parent_id, const std::string &bone, v3f position,
-			v3f rotation, bool force_visible);
-	void getAttachment(int *parent_id, std::string *bone, v3f *position,
-			v3f *rotation, bool *force_visible) const;
-	void clearChildAttachments();
-	void clearParentAttachment();
-	void addAttachmentChild(int child_id);
-	void removeAttachmentChild(int child_id);
-	ClientActiveObject *getParent() const;
-	const std::unordered_set<int> &getAttachmentChildIds() const
+	void setAttachment(object_t parent_id, const std::string &bone, v3f position,
+			v3f rotation, bool force_visible) override;
+	void getAttachment(object_t *parent_id, std::string *bone, v3f *position,
+			v3f *rotation, bool *force_visible) const override;
+	void clearChildAttachments() override;
+	void addAttachmentChild(object_t child_id) override;
+	void removeAttachmentChild(object_t child_id) override;
+	ClientActiveObject *getParent() const override;
+	const std::unordered_set<object_t> &getAttachmentChildIds() const override
 	{ return m_attachment_child_ids; }
-	void updateAttachments();
+	void updateAttachments() override;
 
-	void removeFromScene(bool permanent);
+	void removeFromScene(bool permanent) override;
 
-	void addToScene(ITextureSource *tsrc, scene::ISceneManager *smgr);
+	void addToScene(ITextureSource *tsrc, scene::ISceneManager *smgr) override;
 
 	inline void expireVisuals()
 	{
 		m_visuals_expired = true;
 	}
 
-	void updateLight(u32 day_night_ratio);
+	void updateLight(u32 day_night_ratio) override;
 
 	void setNodeLight(const video::SColor &light);
 
@@ -258,9 +274,9 @@ public:
 
 	void updateNodePos();
 
-	void step(float dtime, ClientEnvironment *env);
+	void step(float dtime, ClientEnvironment *env) override;
 
-	void updateTexturePos();
+	void updateTextureAnim();
 
 	// ffs this HAS TO BE a string copy! See #5739 if you think otherwise
 	// Reason: updateTextures(m_previous_texture_modifier);
@@ -270,19 +286,23 @@ public:
 
 	void updateAnimationSpeed();
 
-	void updateBonePosition();
+	void processMessage(const std::string &data) override;
 
-	void processMessage(const std::string &data);
+	bool directReportPunch(v3f dir, const ItemStack *punchitem,
+			const ItemStack *hand_item, float time_from_last_punch=1000000) override;
 
-	bool directReportPunch(v3f dir, const ItemStack *punchitem=NULL,
-			float time_from_last_punch=1000000);
+	std::string debugInfoText() override;
 
-	std::string debugInfoText();
-
-	std::string infoText()
+	std::string infoText() override
 	{
 		return m_prop.infotext;
 	}
 
 	void updateMeshCulling();
+
+private:
+
+	/// Update the parent chain so getPosition() returns an up to date position.
+	void updateParentChain() const;
+
 };

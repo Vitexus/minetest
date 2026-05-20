@@ -1,25 +1,9 @@
-/*
-Minetest
-Copyright (C) 2014-2018 kwolekr, Ryan Kwolek <kwolekr@minetest.net>
-Copyright (C) 2015-2018 paramat
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2014-2018 kwolekr, Ryan Kwolek <kwolekr@minetest.net>
+// Copyright (C) 2015-2018 paramat
 
 #include <fstream>
-#include <typeinfo>
 #include "mg_schematic.h"
 #include "server.h"
 #include "mapgen.h"
@@ -30,8 +14,10 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include "util/numeric.h"
 #include "util/serialize.h"
 #include "serialization.h"
+#include "servermap.h"
 #include "filesys.h"
 #include "voxelalgorithms.h"
+#include "porting.h"
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -80,6 +66,8 @@ Schematic::~Schematic()
 {
 	delete []schemdata;
 	delete []slice_probs;
+	u32 nodecount = size.X * size.Y * size.Z;
+	porting::TrackFreedMemory(nodecount * sizeof(MapNode));
 }
 
 ObjDef *Schematic::clone() const
@@ -140,7 +128,7 @@ void Schematic::blitToVManip(MMVManip *vm, v3s16 p, Rotation rot, bool force_pla
 			i_start  = sx - 1;
 			i_step_x = zstride;
 			i_step_z = -xstride;
-			SWAP(s16, sx, sz);
+			std::swap(sx, sz);
 			break;
 		case ROTATE_180:
 			i_start  = zstride * (sz - 1) + sx - 1;
@@ -151,7 +139,7 @@ void Schematic::blitToVManip(MMVManip *vm, v3s16 p, Rotation rot, bool force_pla
 			i_start  = zstride * (sz - 1);
 			i_step_x = -zstride;
 			i_step_z = xstride;
-			SWAP(s16, sx, sz);
+			std::swap(sx, sz);
 			break;
 		default:
 			i_start  = 0;
@@ -234,9 +222,7 @@ bool Schematic::placeOnVManip(MMVManip *vm, v3s16 p, u32 flags,
 void Schematic::placeOnMap(ServerMap *map, v3s16 p, u32 flags,
 	Rotation rot, bool force_place)
 {
-	std::map<v3s16, MapBlock *> lighting_modified_blocks;
 	std::map<v3s16, MapBlock *> modified_blocks;
-	std::map<v3s16, MapBlock *>::iterator it;
 
 	assert(map != NULL);
 	assert(schemdata != NULL);
@@ -257,7 +243,7 @@ void Schematic::placeOnMap(ServerMap *map, v3s16 p, u32 flags,
 	if (flags & DECO_PLACE_CENTER_Z)
 		p.Z -= (s.Z - 1) / 2;
 
-	//// Create VManip for effected area, emerge our area, modify area
+	//// Create VManip for affected area, emerge our area, modify area
 	//// inside VManip, then blit back.
 	v3s16 bp1 = getNodeBlockPos(p);
 	v3s16 bp2 = getNodeBlockPos(p + s - v3s16(1, 1, 1));
@@ -274,8 +260,7 @@ void Schematic::placeOnMap(ServerMap *map, v3s16 p, u32 flags,
 	//// Create & dispatch map modification events to observers
 	MapEditEvent event;
 	event.type = MEET_OTHER;
-	for (it = modified_blocks.begin(); it != modified_blocks.end(); ++it)
-		event.modified_blocks.insert(it->first);
+	event.setModifiedBlocks(modified_blocks);
 
 	map->dispatchEvent(event);
 }
@@ -386,7 +371,7 @@ bool Schematic::serializeToMts(std::ostream *os) const
 	}
 
 	// compressed bulk node data
-	SharedBuffer<u8> buf = MapNode::serializeBulk(MTSCHEM_MAPNODE_SER_FMT_VER,
+	auto buf = MapNode::serializeBulk(MTSCHEM_MAPNODE_SER_FMT_VER,
 		schemdata, size.X * size.Y * size.Z, 2, 2);
 	compress(buf, ss, MTSCHEM_MAPNODE_SER_FMT_VER);
 
@@ -487,12 +472,9 @@ bool Schematic::serializeToLua(std::ostream *os, bool use_comments,
 bool Schematic::loadSchematicFromFile(const std::string &filename,
 	const NodeDefManager *ndef, StringMap *replace_names)
 {
-	std::ifstream is(filename.c_str(), std::ios_base::binary);
-	if (!is.good()) {
-		errorstream << __FUNCTION__ << ": unable to open file '"
-			<< filename << "'" << std::endl;
+	auto is = open_ifstream(filename.c_str(), true);
+	if (!is.good())
 		return false;
-	}
 
 	if (!m_ndef)
 		m_ndef = ndef;
@@ -627,7 +609,7 @@ void Schematic::condenseContentIds()
 			numids++;
 
 			m_nodenames.push_back(m_ndef->get(c).name);
-			nodeidmap.emplace(std::make_pair(c, id));
+			nodeidmap.emplace(c, id);
 		} else {
 			id = it->second;
 		}

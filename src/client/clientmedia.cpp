@@ -1,23 +1,9 @@
-/*
-Minetest
-Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "clientmedia.h"
+#include "gettext.h"
 #include "httpfetch.h"
 #include "client.h"
 #include "filecache.h"
@@ -27,8 +13,9 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include "settings.h"
 #include "util/hex.h"
 #include "util/serialize.h"
-#include "util/sha1.h"
+#include "util/hashing.h"
 #include "util/string.h"
+#include <sstream>
 
 static std::string getMediaCacheDir()
 {
@@ -41,7 +28,16 @@ bool clientMediaUpdateCache(const std::string &raw_hash, const std::string &file
 	std::string sha1_hex = hex_encode(raw_hash);
 	if (!media_cache.exists(sha1_hex))
 		return media_cache.update(sha1_hex, filedata);
-	return true;
+	return false;
+}
+
+bool clientMediaUpdateCacheCopy(const std::string &raw_hash, const std::string &path)
+{
+	FileCache media_cache(getMediaCacheDir());
+	std::string sha1_hex = hex_encode(raw_hash);
+	if (!media_cache.exists(sha1_hex))
+		return media_cache.updateCopyFile(sha1_hex, path);
+	return false;
 }
 
 /*
@@ -103,7 +99,7 @@ void ClientMediaDownloader::addFile(const std::string &name, const std::string &
 	filestatus->received = false;
 	filestatus->sha1 = sha1;
 	filestatus->current_remote = -1;
-	m_files.insert(std::make_pair(name, filestatus));
+	m_files.emplace(name, filestatus);
 }
 
 void ClientMediaDownloader::addRemoteServer(const std::string &baseurl)
@@ -158,7 +154,7 @@ void ClientMediaDownloader::step(Client *client)
 			startRemoteMediaTransfers();
 
 		// Did all remote transfers end and no new ones can be started?
-		// If so, request still missing files from the minetest server
+		// If so, request still missing files from the server
 		// (Or report that we have all files.)
 		if (m_httpfetch_active == 0) {
 			if (m_uncached_received_count < m_uncached_count) {
@@ -172,8 +168,22 @@ void ClientMediaDownloader::step(Client *client)
 	}
 }
 
+std::string ClientMediaDownloader::makeReferer(Client *client)
+{
+	std::string addr = client->getAddressName();
+	if (addr.find(':') != std::string::npos)
+		addr = '[' + addr + ']';
+	return std::string("minetest://") + addr + ':' +
+		std::to_string(client->getServerAddress().getPort());
+}
+
 void ClientMediaDownloader::initialStep(Client *client)
 {
+	std::wstring loading_text = wstrgettext("Media...");
+	// Tradeoff between responsiveness during media loading and media loading speed
+	const u64 chunk_time_ms = 33;
+	u64 last_time = porting::getTimeMs();
+
 	// Check media cache
 	m_uncached_count = m_files.size();
 	for (auto &file_it : m_files) {
@@ -185,13 +195,16 @@ void ClientMediaDownloader::initialStep(Client *client)
 			filestatus->received = true;
 			m_uncached_count--;
 		}
+
+		u64 cur_time = porting::getTimeMs();
+		u64 dtime = porting::getDeltaMs(last_time, cur_time);
+		if (dtime >= chunk_time_ms) {
+			client->drawLoadScreen(loading_text, dtime / 1000.0f, 30);
+			last_time = cur_time;
+		}
 	}
 
 	assert(m_uncached_received_count == 0);
-
-	// Create the media cache dir if we are likely to write to it
-	if (m_uncached_count != 0)
-		createCacheDirs();
 
 	// If we found all files in the cache, report this fact to the server.
 	// If the server reported no remote servers, immediately start
@@ -223,9 +236,14 @@ void ClientMediaDownloader::initialStep(Client *client)
 		m_httpfetch_active_limit = g_settings->getS32("curl_parallel_limit");
 		m_httpfetch_active_limit = MYMAX(m_httpfetch_active_limit, 84);
 
-		// Write a list of hashes that we need. This will be POSTed
-		// to the server using Content-Type: application/octet-stream
-		std::string required_hash_set = serializeRequiredHashSet();
+		// Note: we used to use a POST request that contained the set of
+		// hashes we needed here, but this use was discontinued in 5.12.0 as
+		// it's not CDN/static hosting-friendly.
+		// Even with a large repository of media (think 60k files), you would be
+		// looking at only 1.1 MB for the index file.
+		// If it becomes a problem we can always still introduce a v2 of the
+		// hash set format and truncate the hashes to 6 bytes -- at the cost of
+		// a false-positive rate of 2^-48 -- which is 70% less space.
 
 		// minor fixme: this loop ignores m_httpfetch_active_limit
 
@@ -247,19 +265,8 @@ void ClientMediaDownloader::initialStep(Client *client)
 				remote->baseurl + MTHASHSET_FILE_NAME;
 			fetch_request.caller = m_httpfetch_caller;
 			fetch_request.request_id = m_httpfetch_next_id; // == i
-			fetch_request.method = HTTP_POST;
-			fetch_request.raw_data = required_hash_set;
 			fetch_request.extra_headers.emplace_back(
-				"Content-Type: application/octet-stream");
-
-			// Encapsulate possible IPv6 plain address in []
-			std::string addr = client->getAddressName();
-			if (addr.find(':', 0) != std::string::npos)
-				addr = '[' + addr + ']';
-			fetch_request.extra_headers.emplace_back(
-				std::string("Referer: minetest://") +
-				addr + ":" +
-				std::to_string(client->getServerAddress().getPort()));
+				"Referer: " + makeReferer(client));
 
 			httpfetch_async(fetch_request);
 
@@ -416,13 +423,13 @@ void ClientMediaDownloader::startRemoteMediaTransfers()
 				fetch_request.url = url;
 				fetch_request.caller = m_httpfetch_caller;
 				fetch_request.request_id = m_httpfetch_next_id;
-				fetch_request.timeout =
-					g_settings->getS32("curl_file_download_timeout");
+				fetch_request.timeout = std::max(MIN_HTTPFETCH_TIMEOUT,
+					(long)g_settings->getS32("curl_file_download_timeout"));
 				httpfetch_async(fetch_request);
 
-				m_remote_file_transfers.insert(std::make_pair(
+				m_remote_file_transfers.emplace(
 							m_httpfetch_next_id,
-							name));
+							name);
 
 				filestatus->current_remote = remote_id;
 				remote->active_count++;
@@ -511,18 +518,6 @@ IClientMediaDownloader::IClientMediaDownloader():
 {
 }
 
-void IClientMediaDownloader::createCacheDirs()
-{
-	if (!m_write_to_cache)
-		return;
-
-	std::string path = getMediaCacheDir();
-	if (!fs::CreateAllDirs(path)) {
-		errorstream << "Client: Could not create media cache directory: "
-			<< path << std::endl;
-	}
-}
-
 bool IClientMediaDownloader::tryLoadFromCache(const std::string &name,
 	const std::string &sha1, Client *client)
 {
@@ -545,14 +540,7 @@ bool IClientMediaDownloader::checkAndLoad(
 	std::string sha1_hex = hex_encode(sha1);
 
 	// Compute actual checksum of data
-	std::string data_sha1;
-	{
-		SHA1 data_sha1_calculator;
-		data_sha1_calculator.addBytes(data.c_str(), data.size());
-		unsigned char *data_tmpdigest = data_sha1_calculator.getDigest();
-		data_sha1.assign((char*) data_tmpdigest, 20);
-		free(data_tmpdigest);
-	}
+	std::string data_sha1 = hashing::sha1(data);
 
 	// Check that received file matches announced checksum
 	if (data_sha1 != sha1) {
@@ -599,25 +587,6 @@ bool IClientMediaDownloader::checkAndLoad(
 	Version changes:
 	1 - Initial version
 */
-
-std::string ClientMediaDownloader::serializeRequiredHashSet()
-{
-	std::ostringstream os(std::ios::binary);
-
-	writeU32(os, MTHASHSET_FILE_SIGNATURE); // signature
-	writeU16(os, 1);                        // version
-
-	// Write list of hashes of files that have not been
-	// received (found in cache) yet
-	for (const auto &it : m_files) {
-		if (!it.second->received) {
-			FATAL_ERROR_IF(it.second->sha1.size() != 20, "Invalid SHA1 size");
-			os << it.second->sha1;
-		}
-	}
-
-	return os.str();
-}
 
 void ClientMediaDownloader::deSerializeHashSet(const std::string &data,
 		std::set<std::string> &result)
@@ -725,8 +694,6 @@ void SingleMediaDownloader::initialStep(Client *client)
 		m_stage = STAGE_DONE;
 	if (isDone())
 		return;
-
-	createCacheDirs();
 
 	// If the server reported no remote servers, immediately fall back to
 	// conventional transfer.

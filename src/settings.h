@@ -1,21 +1,6 @@
-/*
-Minetest
-Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #pragma once
 
@@ -23,8 +8,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include "util/string.h"
 #include "util/basic_macros.h"
 #include <string>
-#include <list>
-#include <set>
+#include <map>
 #include <mutex>
 
 class Settings;
@@ -33,6 +17,8 @@ struct NoiseParams;
 // Global objects
 extern Settings *g_settings; // Same as Settings::getLayer(SL_GLOBAL);
 extern std::string g_settings_path;
+/// Is set to true if the engine runs for the first time
+extern bool g_first_run;
 
 // Type for a settings changed callback function
 typedef void (*SettingsChangedCallback)(const std::string &name, void *data);
@@ -124,18 +110,17 @@ typedef std::unordered_map<std::string, SettingsEntry> SettingEntries;
 class Settings {
 public:
 	/* These functions operate on the global hierarchy! */
-	static Settings *createLayer(SettingsLayer sl, const std::string &end_tag = "");
+	static Settings *createLayer(SettingsLayer sl, std::string_view end_tag = "");
 	static Settings *getLayer(SettingsLayer sl);
 	/**/
 
-	Settings(const std::string &end_tag = "") :
+	Settings(std::string_view end_tag = "") :
 		m_end_tag(end_tag)
 	{}
-	Settings(const std::string &end_tag, SettingsHierarchy *h, int settings_layer);
+	Settings(std::string_view end_tag, SettingsHierarchy *h, int settings_layer);
 	~Settings();
 
-	Settings & operator += (const Settings &other);
-	Settings & operator = (const Settings &other);
+	Settings & operator=(const Settings &other);
 
 	/***********************
 	 * Reading and writing *
@@ -147,7 +132,7 @@ public:
 	bool updateConfigFile(const char *filename);
 	// NOTE: Types of allowed_options are ignored.  Returns success.
 	bool parseCommandLine(int argc, char *argv[],
-			std::map<std::string, ValueSpec> &allowed_options);
+			const std::map<std::string, ValueSpec> &allowed_options);
 	bool parseConfigLines(std::istream &is);
 	void writeLines(std::ostream &os, u32 tab_depth=0) const;
 
@@ -164,8 +149,9 @@ public:
 	s32 getS32(const std::string &name) const;
 	u64 getU64(const std::string &name) const;
 	float getFloat(const std::string &name) const;
+	float getFloat(const std::string &name, float min, float max) const;
 	v2f getV2F(const std::string &name) const;
-	v3f getV3F(const std::string &name) const;
+	std::optional<v3f> getV3F(const std::string &name) const;
 	u32 getFlagStr(const std::string &name, const FlagDesc *flagdesc,
 			u32 *flagmask) const;
 	bool getNoiseParams(const std::string &name, NoiseParams &np) const;
@@ -194,7 +180,7 @@ public:
 	bool getU64NoEx(const std::string &name, u64 &val) const;
 	bool getFloatNoEx(const std::string &name, float &val) const;
 	bool getV2FNoEx(const std::string &name, v2f &val) const;
-	bool getV3FNoEx(const std::string &name, v3f &val) const;
+	bool getV3FNoEx(const std::string &name, std::optional<v3f> &val) const;
 
 	// Like other getters, but handling each flag individualy:
 	// 1) Read default flags (or 0)
@@ -238,8 +224,7 @@ public:
 
 	void registerChangedCallback(const std::string &name,
 		SettingsChangedCallback cbf, void *userdata = NULL);
-	void deregisterChangedCallback(const std::string &name,
-		SettingsChangedCallback cbf, void *userdata = NULL);
+	size_t deregisterAllChangedCallbacks(const void *userdata);
 
 	void removeSecureSettings();
 
@@ -257,8 +242,8 @@ private:
 	bool updateConfigObject(std::istream &is, std::ostream &os,
 		u32 tab_depth=0);
 
-	static bool checkNameValid(const std::string &name);
-	static bool checkValueValid(const std::string &value);
+	static bool checkNameValid(std::string_view name);
+	static bool checkValueValid(std::string_view value);
 	static std::string getMultiline(std::istream &is, size_t *num_lines=NULL);
 	static void printEntry(std::ostream &os, const std::string &name,
 		const SettingsEntry &entry, u32 tab_depth=0);
@@ -275,9 +260,7 @@ private:
 	// For sane mutex locking when iterating
 	friend class LuaSettings;
 
-	void updateNoLock(const Settings &other);
 	void clearNoLock();
-	void clearDefaultsNoLock();
 
 	void doCallbacks(const std::string &name) const;
 

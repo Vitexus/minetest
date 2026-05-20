@@ -1,7 +1,4 @@
--- Minetest: builtin/item.lua
-
 local builtin_shared = ...
-local SCALE = 0.667
 
 local facedir_to_euler = {
 	{y = 0, x = 0, z = 0},
@@ -38,9 +35,7 @@ local gravity = tonumber(core.settings:get("movement_gravity")) or 9.81
 
 core.register_entity(":__builtin:falling_node", {
 	initial_properties = {
-		visual = "item",
-		visual_size = vector.new(SCALE, SCALE, SCALE),
-		textures = {},
+		visual = "node",
 		physical = true,
 		is_visible = false,
 		collide_with_objects = true,
@@ -79,41 +74,18 @@ core.register_entity(":__builtin:falling_node", {
 		-- Cache whether we're supposed to float on water
 		self.floats = core.get_item_group(node.name, "float") ~= 0
 
-		-- Set entity visuals
-		if def.drawtype == "torchlike" or def.drawtype == "signlike" then
-			local textures
-			if def.tiles and def.tiles[1] then
-				local tile = def.tiles[1]
-				if type(tile) == "table" then
-					tile = tile.name
-				end
-				if def.drawtype == "torchlike" then
-					textures = { "("..tile..")^[transformFX", tile }
-				else
-					textures = { tile, "("..tile..")^[transformFX" }
-				end
-			end
-			local vsize
-			if def.visual_scale then
-				local s = def.visual_scale
-				vsize = vector.new(s, s, s)
-			end
-			self.object:set_properties({
-				is_visible = true,
-				visual = "upright_sprite",
-				visual_size = vsize,
-				textures = textures,
-				glow = def.light_source,
-			})
-		elseif def.drawtype ~= "airlike" then
-			local itemstring = node.name
-			if core.is_colored_paramtype(def.paramtype2) then
-				itemstring = core.itemstring_with_palette(itemstring, node.param2)
-			end
-			-- FIXME: solution needed for paramtype2 == "leveled"
+		-- Save liquidtype for falling water
+		self.liquidtype = def.liquidtype
+
+		-- Set up entity visuals
+		-- For compatibility with older clients we continue to use "item" visual
+		-- for simple situations.
+		local drawtypes = {normal=true, glasslike=true, allfaces=true, nodebox=true}
+		local p2types = {none=true, facedir=true, ["4dir"]=true}
+		if drawtypes[def.drawtype] and p2types[def.paramtype2] and def.use_texture_alpha ~= "blend" then
 			-- Calculate size of falling node
-			local s = {}
-			s.x = (def.visual_scale or 1) * SCALE
+			local s = vector.zero()
+			s.x = (def.visual_scale or 1) * 0.667
 			s.y = s.x
 			s.z = s.x
 			-- Compensate for wield_scale
@@ -124,8 +96,29 @@ core.register_entity(":__builtin:falling_node", {
 			end
 			self.object:set_properties({
 				is_visible = true,
-				wield_item = itemstring,
+				visual = "item",
+				wield_item = node.name,
 				visual_size = s,
+				glow = def.light_source,
+			})
+			-- Rotate as needed
+			if def.paramtype2 == "facedir" then
+				local fdir = node.param2 % 32 % 24
+				local euler = facedir_to_euler[fdir + 1]
+				if euler then
+					self.object:set_rotation(euler)
+				end
+			elseif def.paramtype2 == "4dir" then
+				local fdir = node.param2 % 4
+				local euler = facedir_to_euler[fdir + 1]
+				if euler then
+					self.object:set_rotation(euler)
+				end
+			end
+		elseif def.drawtype ~= "airlike" then
+			self.object:set_properties({
+				is_visible = true,
+				node = node,
 				glow = def.light_source,
 			})
 		end
@@ -145,81 +138,6 @@ core.register_entity(":__builtin:falling_node", {
 				self.object:set_properties({
 					collisionbox = box
 				})
-			end
-		end
-
-		-- Rotate entity
-		if def.drawtype == "torchlike" then
-			self.object:set_yaw(math.pi*0.25)
-		elseif ((node.param2 ~= 0 or def.drawtype == "nodebox" or def.drawtype == "mesh")
-				and (def.wield_image == "" or def.wield_image == nil))
-				or def.drawtype == "signlike"
-				or def.drawtype == "mesh"
-				or def.drawtype == "normal"
-				or def.drawtype == "nodebox" then
-			if (def.paramtype2 == "facedir" or def.paramtype2 == "colorfacedir") then
-				local fdir = node.param2 % 32
-				-- Get rotation from a precalculated lookup table
-				local euler = facedir_to_euler[fdir + 1]
-				if euler then
-					self.object:set_rotation(euler)
-				end
-			elseif (def.drawtype ~= "plantlike" and def.drawtype ~= "plantlike_rooted" and
-					(def.paramtype2 == "wallmounted" or def.paramtype2 == "colorwallmounted" or def.drawtype == "signlike")) then
-				local rot = node.param2 % 8
-				if (def.drawtype == "signlike" and def.paramtype2 ~= "wallmounted" and def.paramtype2 ~= "colorwallmounted") then
-					-- Change rotation to "floor" by default for non-wallmounted paramtype2
-					rot = 1
-				end
-				local pitch, yaw, roll = 0, 0, 0
-				if def.drawtype == "nodebox" or def.drawtype == "mesh" then
-					if rot == 0 then
-						pitch, yaw = math.pi/2, 0
-					elseif rot == 1 then
-						pitch, yaw = -math.pi/2, math.pi
-					elseif rot == 2 then
-						pitch, yaw = 0, math.pi/2
-					elseif rot == 3 then
-						pitch, yaw = 0, -math.pi/2
-					elseif rot == 4 then
-						pitch, yaw = 0, math.pi
-					end
-				else
-					if rot == 1 then
-						pitch, yaw = math.pi, math.pi
-					elseif rot == 2 then
-						pitch, yaw = math.pi/2, math.pi/2
-					elseif rot == 3 then
-						pitch, yaw = math.pi/2, -math.pi/2
-					elseif rot == 4 then
-						pitch, yaw = math.pi/2, math.pi
-					elseif rot == 5 then
-						pitch, yaw = math.pi/2, 0
-					end
-				end
-				if def.drawtype == "signlike" then
-					pitch = pitch - math.pi/2
-					if rot == 0 then
-						yaw = yaw + math.pi/2
-					elseif rot == 1 then
-						yaw = yaw - math.pi/2
-					end
-				elseif def.drawtype == "mesh" or def.drawtype == "normal" or def.drawtype == "nodebox" then
-					if rot >= 0 and rot <= 1 then
-						roll = roll + math.pi
-					else
-						yaw = yaw + math.pi
-					end
-				end
-				self.object:set_rotation({x=pitch, y=yaw, z=roll})
-			elseif (def.drawtype == "mesh" and def.paramtype2 == "degrotate") then
-				local p2 = (node.param2 - (def.place_param2 or 0)) % 240
-				local yaw = (p2 / 240) * (math.pi * 2)
-				self.object:set_yaw(yaw)
-			elseif (def.drawtype == "mesh" and def.paramtype2 == "colordegrotate") then
-				local p2 = (node.param2 % 32 - (def.place_param2 or 0) % 32) % 24
-				local yaw = (p2 / 24) * (math.pi * 2)
-				self.object:set_yaw(yaw)
 			end
 		end
 	end,
@@ -264,28 +182,39 @@ core.register_entity(":__builtin:falling_node", {
 		end
 
 		-- Decide if we're replacing the node or placing on top
-		local np = vector.new(bcp)
-		if bcd and bcd.buildable_to and
-				(not self.floats or bcd.liquidtype == "none") then
+		-- This condition is very similar to the check in core.check_single_for_falling(p)
+		local np = vector.copy(bcp)
+		if bcd and bcd.buildable_to
+				and -- Take "float" group into consideration:
+				(
+					-- Fall through non-liquids
+					not self.floats or bcd.liquidtype == "none" or
+					-- Only let sources fall through flowing liquids
+					(self.floats and self.liquidtype ~= "none" and bcd.liquidtype ~= "source")
+				) then
+
 			core.remove_node(bcp)
 		else
+			-- We are placing on top so check what's there
 			np.y = np.y + 1
-		end
 
-		-- Check what's here
-		local n2 = core.get_node(np)
-		local nd = core.registered_nodes[n2.name]
-		-- If it's not air or liquid, remove node and replace it with
-		-- it's drops
-		if n2.name ~= "air" and (not nd or nd.liquidtype == "none") then
-			if nd and nd.buildable_to == false then
+			local n2 = core.get_node(np)
+			local nd = core.registered_nodes[n2.name]
+			if not nd or nd.buildable_to then
+				core.remove_node(np)
+			else
+				-- 'walkable' is used to mean "falling nodes can't replace this"
+				-- here. Normally we would collide with the walkable node itself
+				-- and place our node on top (so `n2.name == "air"`), but we
+				-- re-check this in case we ended up inside a node.
+				if not nd.diggable or nd.walkable then
+					return false
+				end
 				nd.on_dig(np, n2, nil)
 				-- If it's still there, it might be protected
 				if core.get_node(np).name == n2.name then
 					return false
 				end
-			else
-				core.remove_node(np)
 			end
 		end
 
@@ -436,7 +365,7 @@ local function drop_attached_node(p)
 	if def and def.preserve_metadata then
 		local oldmeta = core.get_meta(p):to_table().fields
 		-- Copy pos and node because the callback can modify them.
-		local pos_copy = vector.new(p)
+		local pos_copy = vector.copy(p)
 		local node_copy = {name=n.name, param1=n.param1, param2=n.param2}
 		local drop_stacks = {}
 		for k, v in pairs(drops) do
@@ -459,15 +388,39 @@ local function drop_attached_node(p)
 	end
 end
 
-function builtin_shared.check_attached_node(p, n)
+function builtin_shared.check_attached_node(p, n, group_rating)
 	local def = core.registered_nodes[n.name]
-	local d = vector.new()
-	if def.paramtype2 == "wallmounted" or
+	local d = vector.zero()
+	if group_rating == 3 then
+		-- always attach to floor
+		d.y = -1
+	elseif group_rating == 4 then
+		-- always attach to ceiling
+		d.y = 1
+	elseif group_rating == 2 then
+		-- attach to facedir or 4dir direction
+		if (def.paramtype2 == "facedir" or
+				def.paramtype2 == "colorfacedir") then
+			-- Attach to whatever facedir is "mounted to".
+			-- For facedir, this is where tile no. 5 point at.
+
+			-- The fallback vector here is in case 'facedir to dir' is nil due
+			-- to voxelmanip placing a wallmounted node without resetting a
+			-- pre-existing param2 value that is out-of-range for facedir.
+			-- The fallback vector corresponds to param2 = 0.
+			d = core.facedir_to_dir(n.param2) or vector.new(0, 0, 1)
+		elseif (def.paramtype2 == "4dir" or
+				def.paramtype2 == "color4dir") then
+			-- Similar to facedir handling
+			d = core.fourdir_to_dir(n.param2) or vector.new(0, 0, 1)
+		end
+	elseif def.paramtype2 == "wallmounted" or
 			def.paramtype2 == "colorwallmounted" then
-		-- The fallback vector here is in case 'wallmounted to dir' is nil due
-		-- to voxelmanip placing a wallmounted node without resetting a
-		-- pre-existing param2 value that is out-of-range for wallmounted.
-		-- The fallback vector corresponds to param2 = 0.
+		-- Attach to whatever this node is "mounted to".
+		-- This where tile no. 2 points at.
+
+		-- The fallback vector here is used for the same reason as
+		-- for facedir nodes.
 		d = core.wallmounted_to_dir(n.param2) or vector.new(0, 1, 0)
 	else
 		d.y = -1
@@ -498,22 +451,31 @@ function core.check_single_for_falling(p)
 			if same and d_bottom.paramtype2 == "leveled" and
 					core.get_node_level(p_bottom) <
 					core.get_node_max_level(p_bottom) then
-				convert_to_falling_node(p, n)
-				return true
+				local success, _ = convert_to_falling_node(p, n)
+				return success
 			end
+			local d_falling = core.registered_nodes[n.name]
+			local do_float = core.get_item_group(n.name, "float") > 0
 			-- Otherwise only if the bottom node is considered "fall through"
 			if not same and
-					(not d_bottom.walkable or d_bottom.buildable_to) and
-					(core.get_item_group(n.name, "float") == 0 or
-					d_bottom.liquidtype == "none") then
-				convert_to_falling_node(p, n)
-				return true
+					(not d_bottom.walkable or d_bottom.buildable_to)
+					and -- Take "float" group into consideration:
+					(
+						-- Fall through non-liquids
+						not do_float or d_bottom.liquidtype == "none" or
+						-- Only let sources fall through flowing liquids
+						(do_float and d_falling.liquidtype == "source" and d_bottom.liquidtype ~= "source")
+					) then
+
+				local success, _ = convert_to_falling_node(p, n)
+				return success
 			end
 		end
 	end
 
-	if core.get_item_group(n.name, "attached_node") ~= 0 then
-		if not builtin_shared.check_attached_node(p, n) then
+	local an = core.get_item_group(n.name, "attached_node")
+	if an ~= 0 then
+		if not builtin_shared.check_attached_node(p, n, an) then
 			drop_attached_node(p)
 			return true
 		end

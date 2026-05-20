@@ -1,27 +1,11 @@
-/*
-Minetest
-Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #pragma once
 
 #include <vector>
 #include "util/string.h"
-#include "config.h"
 
 // These can be used in place of "caller" in to specify special handling.
 // Discard result (used as default value of "caller").
@@ -31,16 +15,25 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 // requests because the result does not have to be retrieved later).
 #define HTTPFETCH_SYNC 1
 // Print response body to console if the server returns an error code.
-#define HTTPFETCH_PRINT_ERR 2
+#define HTTPFETCH_PRINT_BODY 2
 // Start of regular allocated caller IDs.
 #define HTTPFETCH_CID_START 3
+
+namespace {
+	// lower bound for curl_timeout (see also settingtypes.txt)
+	constexpr long MIN_HTTPFETCH_TIMEOUT_INTERACTIVE = 1000;
+	// lower bound for curl_file_download_timeout
+	constexpr long MIN_HTTPFETCH_TIMEOUT = 5000;
+}
 
 //  Methods
 enum HttpMethod : u8
 {
 	HTTP_GET,
+	HTTP_HEAD,
 	HTTP_POST,
 	HTTP_PUT,
+	HTTP_PATCH,
 	HTTP_DELETE,
 };
 
@@ -63,24 +56,26 @@ struct HTTPFetchRequest
 	long connect_timeout;
 
 	// Indicates if this is multipart/form-data or
-	// application/x-www-form-urlencoded.  POST-only.
+	// application/x-www-form-urlencoded. Not allowed for GET.
 	bool multipart = false;
 
-	//  The Method to use default = GET
-	//  Avaible methods GET, POST, PUT, DELETE
+	// Method to use
 	HttpMethod method = HTTP_GET;
 
 	// Fields of the request
 	StringMap fields;
 
-	// Raw data of the request overrides fields
+	// Raw data of the request (instead of fields, ignored if multipart)
 	std::string raw_data;
 
 	// If not empty, should contain entries such as "Accept: text/html"
 	std::vector<std::string> extra_headers;
 
-	// useragent to use
+	// User agent to send
 	std::string useragent;
+
+	// If true, don't print to errorstream when result is not OK.
+	bool quiet = false;
 
 	HTTPFetchRequest();
 };
@@ -128,6 +123,9 @@ u64 httpfetch_caller_alloc_secure();
 // to stop any ongoing fetches for the given caller.
 void httpfetch_caller_free(u64 caller);
 
-// Performs a synchronous HTTP request. This blocks and therefore should
-// only be used from background threads.
-void httpfetch_sync(const HTTPFetchRequest &fetch_request, HTTPFetchResult &fetch_result);
+// Performs a synchronous HTTP request that is interruptible if the current
+// thread is a Thread object. interval is the completion check interval in ms.
+// This blocks and therefore should only be used from background threads.
+// Returned is whether the request completed without interruption.
+bool httpfetch_sync_interruptible(const HTTPFetchRequest &fetch_request,
+		HTTPFetchResult &fetch_result, long interval = 100);

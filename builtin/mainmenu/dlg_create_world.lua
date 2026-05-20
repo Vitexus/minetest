@@ -1,22 +1,6 @@
---Minetest
---Copyright (C) 2014 sapier
---
---This program is free software; you can redistribute it and/or modify
---it under the terms of the GNU Lesser General Public License as published by
---the Free Software Foundation; either version 2.1 of the License, or
---(at your option) any later version.
---
---This program is distributed in the hope that it will be useful,
---but WITHOUT ANY WARRANTY; without even the implied warranty of
---MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
---GNU Lesser General Public License for more details.
---
---You should have received a copy of the GNU Lesser General Public License along
---with this program; if not, write to the Free Software Foundation, Inc.,
---51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-
--- cf. tab_local, the gamebar already provides game selection so we hide the list from here
-local hide_gamelist = PLATFORM ~= "Android"
+-- Luanti
+-- Copyright (C) 2014 sapier
+-- SPDX-License-Identifier: LGPL-2.1-or-later
 
 local function table_to_flags(ftable)
 	-- Convert e.g. { jungles = true, caves = false } to "jungles,nocaves"
@@ -73,6 +57,8 @@ local flag_checkboxes = {
 		{ "trees", fgettext("Trees and jungle grass") },
 		{ "flat", fgettext("Flat terrain") },
 		{ "mudflow", fgettext("Mud flow"), fgettext("Terrain surface erosion") },
+		{ "temples", fgettext("Desert temples"),
+		fgettext("Different dungeon variant generated in desert biomes (only if dungeons enabled)") },
 		-- Biome settings are in mgv6_biomes below
 	},
 }
@@ -94,36 +80,23 @@ local mgv6_biomes = {
 
 local function create_world_formspec(dialogdata)
 
-	-- Error out when no games found
-	if #pkgmgr.games == 0 then
-		return "size[12.25,3,true]" ..
-			"box[0,0;12,2;" .. mt_color_orange .. "]" ..
-			"textarea[0.3,0;11.7,2;;;"..
-			fgettext("You have no games installed.") .. "\n" ..
-			fgettext("Download one from minetest.net") .. "]" ..
-			"button[4.75,2.5;3,0.5;world_create_cancel;" .. fgettext("Cancel") .. "]"
-	end
-
 	local current_mg = dialogdata.mg
 	local mapgens = core.get_mapgen_names()
 
-	local gameid = core.settings:get("menu_last_game")
-
 	local flags = dialogdata.flags
 
-	local game, gameidx = pkgmgr.find_by_gameid(gameid)
-	if game == nil and hide_gamelist then
+	local game = pkgmgr.find_by_gameid(core.settings:get("menu_last_game"))
+	if game == nil then
 		-- should never happen but just pick the first game
-		game = pkgmgr.get_game(1)
-		gameidx = 1
+		game = pkgmgr.games[1]
 		core.settings:set("menu_last_game", game.id)
-	elseif game == nil then
-		gameidx = 0
 	end
 
 	local disallowed_mapgen_settings = {}
 	if game ~= nil then
 		local gameconfig = Settings(game.path.."/game.conf")
+
+		current_mg = current_mg or gameconfig:get("default_mapgen") or core.settings:get("mg_name")
 
 		local allowed_mapgens = (gameconfig:get("allowed_mapgens") or ""):split()
 		for key, value in pairs(allowed_mapgens) do
@@ -199,6 +172,7 @@ local function create_world_formspec(dialogdata)
 			fgettext("Dungeons") .. ";"..strflag(flags.main, "dungeons").."]"
 		y = y + 0.5
 
+		-- TRANSLATORS: Map generator decorations (used for structures, trees, plants, and more)
 		local d_name = fgettext("Decorations")
 		local d_tt
 		if mapgen == "v6" then
@@ -271,6 +245,7 @@ local function create_world_formspec(dialogdata)
 		-- biomeblend
 		y = y + 0.55
 		form = form .. "checkbox[0,"..y..";flag_v6_biomeblend;" ..
+			-- TRANSLATORS: Smooth transition between biomes
 			fgettext("Biome blending") .. ";"..strflag(flags.v6, "biomeblend").."]" ..
 			"tooltip[flag_v6_biomeblend;" ..
 			fgettext("Smooth transition between biomes") .. "]"
@@ -296,19 +271,8 @@ local function create_world_formspec(dialogdata)
 		label_spflags = "label[0,"..y_start..";" .. fgettext("Mapgen-specific flags") .. "]"
 	end
 
-	-- Warning if only devtest is installed
-	local devtest_only = ""
-	local gamelist_height = 2.3
-	if #pkgmgr.games == 1 and pkgmgr.games[1].id == "devtest" then
-		devtest_only = "box[0,0;5.8,1.7;#ff8800]" ..
-				"textarea[0.3,0;6,1.8;;;"..
-				fgettext("Warning: The Development Test is meant for developers.") .. "\n" ..
-				fgettext("Download a game, such as Minetest Game, from minetest.net") .. "]"
-		gamelist_height = 0.5
-	end
-
 	local retval =
-		"size[12.25,7,true]" ..
+		"size[12.25,7.4,true]" ..
 
 		-- Left side
 		"container[0,0]"..
@@ -320,6 +284,7 @@ local function create_world_formspec(dialogdata)
 	if not disallowed_mapgen_settings["seed"] then
 
 		retval = retval .. "field[0.3,1.7;6,0.5;te_seed;" ..
+				-- TRANSLATORS: Value for randomness
 				fgettext("Seed") ..
 				";".. core.formspec_escape(dialogdata.seed) .. "]"
 
@@ -329,13 +294,14 @@ local function create_world_formspec(dialogdata)
 		"label[0,2;" .. fgettext("Mapgen") .. "]"..
 		"dropdown[0,2.5;6.3;dd_mapgen;" .. mglist .. ";" .. selindex .. "]"
 
-	if not hide_gamelist or devtest_only ~= "" then
+	-- Warning when making a devtest world
+	if game.id == "devtest" then
 		retval = retval ..
-			"label[0,3.35;" .. fgettext("Game") .. "]"..
-			"textlist[0,3.85;5.8,"..gamelist_height..";games;" ..
-			pkgmgr.gamelist() .. ";" .. gameidx .. ";false]" ..
-			"container[0,4.5]" ..
-			devtest_only ..
+			"container[0,3.5]" ..
+			"box[0,0;5.8,1.7;#ff8800]" ..
+			"textarea[0.4,0.1;6,1.8;;;"..
+			fgettext("Development Test is meant for developers.") .. "]" ..
+			"button[1,1;4,0.5;world_create_open_cdb;" .. fgettext("Install another game") .. "]" ..
 			"container_end[]"
 	end
 
@@ -349,8 +315,10 @@ local function create_world_formspec(dialogdata)
 		"container_end[]"..
 
 		-- Menu buttons
-		"button[3.25,6.5;3,0.5;world_create_confirm;" .. fgettext("Create") .. "]" ..
-		"button[6.25,6.5;3,0.5;world_create_cancel;" .. fgettext("Cancel") .. "]"
+		"container[0,6.9]"..
+		"button[3.25,0;3,0.5;world_create_confirm;" .. fgettext("Create") .. "]" ..
+		"button[6.25,0;3,0.5;world_create_cancel;" .. fgettext("Cancel") .. "]" ..
+		"container_end[]"
 
 	return retval
 
@@ -358,21 +326,30 @@ end
 
 local function create_world_buttonhandler(this, fields)
 
+	if fields["world_create_open_cdb"] then
+		local dlg = create_contentdb_dlg("game")
+		dlg:set_parent(this.parent)
+		this:delete()
+		this.parent:hide()
+		dlg:show()
+		return true
+	end
+
 	if fields["world_create_confirm"] or
 		fields["key_enter"] then
 
-		local worldname = fields["te_world_name"]
-		local game, gameindex
-		if hide_gamelist then
-			game, gameindex = pkgmgr.find_by_gameid(core.settings:get("menu_last_game"))
-		else
-			gameindex = core.get_textlist_index("games")
-			game = pkgmgr.get_game(gameindex)
+		if fields["key_enter"] then
+			-- HACK: This timestamp prevents double-triggering when pressing Enter on an input box
+			-- and releasing it on a button[] or textlist[] due to instant formspec updates.
+			this.parent.dlg_create_world_closed_at = core.get_us_time()
 		end
+
+		local worldname = fields["te_world_name"]
+		local game, _ = pkgmgr.find_by_gameid(core.settings:get("menu_last_game"))
 
 		local message
 		if game == nil then
-			message = fgettext("No game selected")
+			message = fgettext_ne("No game selected")
 		end
 
 		if message == nil then
@@ -391,7 +368,7 @@ local function create_world_buttonhandler(this, fields)
 			end
 
 			if menudata.worldlist:uid_exists_raw(worldname) then
-				message = fgettext("A world named \"$1\" already exists", worldname)
+				message = fgettext_ne("A world named \"$1\" already exists", worldname)
 			end
 		end
 
@@ -412,14 +389,12 @@ local function create_world_buttonhandler(this, fields)
 				mgvalleys_spflags = table_to_flags(this.data.flags.valleys),
 				mgflat_spflags = table_to_flags(this.data.flags.flat),
 			}
-			message = core.create_world(worldname, gameindex, settings)
+			message = core.create_world(worldname, game.id, settings)
 		end
 
 		if message == nil then
 			core.settings:set("menu_last_game", game.id)
-			if this.data.update_worldlist_filter then
-				menudata.worldlist:set_filtercriteria(game.id)
-			end
+			menudata.worldlist:set_filtercriteria(game.id)
 			menudata.worldlist:refresh()
 			core.settings:set("mainmenu_last_selected_world",
 					menudata.worldlist:raw_index_by_uid(worldname))
@@ -477,17 +452,15 @@ local function create_world_buttonhandler(this, fields)
 end
 
 
-function create_create_world_dlg(update_worldlistfilter)
+function create_create_world_dlg()
 	local retval = dialog_create("sp_create_world",
 					create_world_formspec,
 					create_world_buttonhandler,
 					nil)
 	retval.data = {
-		update_worldlist_filter = update_worldlistfilter,
 		worldname = "",
 		-- settings the world is created with:
 		seed = core.settings:get("fixed_map_seed") or "",
-		mg = core.settings:get("mg_name"),
 		flags = {
 			main = core.settings:get_flags("mg_flags"),
 			v5 = core.settings:get_flags("mgv5_spflags"),

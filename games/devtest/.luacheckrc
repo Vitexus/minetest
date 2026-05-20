@@ -22,14 +22,17 @@ read_globals = {
 	"dump", "dump2",
 	"fgettext", "fgettext_ne",
 	"vector",
+	"vector2",
 	"VoxelArea",
+	"VoxelManip",
 	"profiler",
 	"Settings",
 	"check",
 	"PseudoRandom",
+	"PcgRandom",
 
 	string = {fields = {"split", "trim"}},
-	table  = {fields = {"copy", "getn", "indexof", "insert_all"}},
+	table  = {fields = {"copy", "getn", "indexof", "insert_all", "key_value_swap"}},
 	math   = {fields = {"hypot", "round"}},
 }
 

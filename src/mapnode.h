@@ -1,48 +1,28 @@
-/*
-Minetest
-Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #pragma once
 
 #include "irrlichttypes_bloated.h"
 #include "light.h"
 #include "util/pointer.h"
-#include <string>
 #include <vector>
 
 class NodeDefManager;
 class Map;
 
-/*
-	Naming scheme:
-	- Material = irrlicht's Material class
-	- Content = (content_t) content of a node
-	- Tile = TileSpec at some side of a node of some content type
-*/
+// content_t denotes the content of a node
 typedef u16 content_t;
+#define CONTENT_MAX UINT16_MAX
 
 /*
-	The maximum node ID that can be registered by mods. This must
-	be significantly lower than the maximum content_t value, so that
-	there is enough room for dummy node IDs, which are created when
+	The maximum node ID that can be registered by mods. This is
+	somewhat lower than the maximum content_t value, so that
+	there is enough room for dummy node IDs. These are created when
 	a MapBlock containing unknown node names is loaded from disk.
 */
-#define MAX_REGISTERED_CONTENT 0x7fffU
+static constexpr content_t MAX_REGISTERED_CONTENT = CONTENT_MAX - CONTENT_MAX / 10;
 
 /*
 	A solid walkable node with the texture unknown_node.png.
@@ -71,6 +51,25 @@ typedef u16 content_t;
 */
 #define CONTENT_IGNORE 127
 
+/*
+	Content lighting information that fits into a single byte.
+*/
+struct ContentLightingFlags {
+	u8 light_source : 4;
+	bool has_light : 1;
+	bool light_propagates : 1;
+	bool sunlight_propagates : 1;
+
+	bool operator==(const ContentLightingFlags &other) const
+	{
+		return has_light == other.has_light && light_propagates == other.light_propagates &&
+				sunlight_propagates == other.sunlight_propagates &&
+				light_source == other.light_source;
+	}
+	bool operator!=(const ContentLightingFlags &other) const { return !(*this == other); }
+};
+static_assert(sizeof(ContentLightingFlags) == 1, "Unexpected ContentLightingFlags size");
+
 enum LightBank
 {
 	LIGHTBANK_DAY,
@@ -94,9 +93,6 @@ enum Rotation {
 #define LIQUID_LEVEL_MASK 0x07
 #define LIQUID_FLOW_DOWN_MASK 0x08
 
-//#define LIQUID_LEVEL_MASK 0x3f // better finite water
-//#define LIQUID_FLOW_DOWN_MASK 0x40 // not used when finite water
-
 /* maximum amount of liquid in a block */
 #define LIQUID_LEVEL_MAX LIQUID_LEVEL_MASK
 #define LIQUID_LEVEL_SOURCE (LIQUID_LEVEL_MAX+1)
@@ -115,7 +111,7 @@ struct ContentFeatures;
 */
 
 
-struct MapNode
+struct alignas(u32) MapNode
 {
 	/*
 		Main content
@@ -140,7 +136,7 @@ struct MapNode
 
 	MapNode() = default;
 
-	MapNode(content_t content, u8 a_param1=0, u8 a_param2=0) noexcept
+	constexpr MapNode(content_t content, u8 a_param1=0, u8 a_param2=0) noexcept
 		: param0(content),
 		  param1(a_param1),
 		  param2(a_param2)
@@ -151,6 +147,10 @@ struct MapNode
 		return (param0 == other.param0
 				&& param1 == other.param1
 				&& param2 == other.param2);
+	}
+	bool operator!=(const MapNode &other) const noexcept
+	{
+		return !(*this == other);
 	}
 
 	// To be used everywhere
@@ -179,61 +179,55 @@ struct MapNode
 		param2 = p;
 	}
 
-	/*!
-	 * Returns the color of the node.
-	 *
-	 * \param f content features of this node
-	 * \param color output, contains the node's color.
-	 */
-	void getColor(const ContentFeatures &f, video::SColor *color) const;
-
-	void setLight(LightBank bank, u8 a_light, const ContentFeatures &f) noexcept;
-
-	void setLight(LightBank bank, u8 a_light, const NodeDefManager *nodemgr);
+	inline void setLight(LightBank bank, u8 a_light, ContentLightingFlags f) noexcept
+	{
+		// If node doesn't contain light data, ignore this
+		if (!f.has_light)
+			return;
+		if (bank == LIGHTBANK_DAY) {
+			param1 &= 0xf0;
+			param1 |= a_light & 0x0f;
+		} else {
+			assert(bank == LIGHTBANK_NIGHT);
+			param1 &= 0x0f;
+			param1 |= (a_light & 0x0f)<<4;
+		}
+	}
 
 	/**
 	 * Check if the light value for night differs from the light value for day.
 	 *
 	 * @return If the light values are equal, returns true; otherwise false
 	 */
-	bool isLightDayNightEq(const NodeDefManager *nodemgr) const;
+	inline bool isLightDayNightEq(ContentLightingFlags f) const noexcept
+	{
+		return !f.has_light || getLight(LIGHTBANK_DAY, f) == getLight(LIGHTBANK_NIGHT, f);
+	}
 
-	u8 getLight(LightBank bank, const NodeDefManager *nodemgr) const;
+	inline u8 getLight(LightBank bank, ContentLightingFlags f) const noexcept
+	{
+		u8 raw_light = getLightRaw(bank, f);
+		return MYMAX(f.light_source, raw_light);
+	}
 
 	/*!
 	 * Returns the node's light level from param1.
 	 * If the node emits light, it is ignored.
-	 * \param f the ContentFeatures of this node.
+	 * \param f the ContentLightingFlags of this node.
 	 */
-	u8 getLightRaw(LightBank bank, const ContentFeatures &f) const noexcept;
-
-	/**
-	 * This function differs from getLight(LightBank bank, NodeDefManager *nodemgr)
-	 * in that the ContentFeatures of the node in question are not retrieved by
-	 * the function itself.  Thus, if you have already called nodemgr->get() to
-	 * get the ContentFeatures you pass it to this function instead of the
-	 * function getting ContentFeatures itself.  Since NodeDefManager::get()
-	 * is relatively expensive this can lead to significant performance
-	 * improvements in some situations.  Call this function if (and only if)
-	 * you have already retrieved the ContentFeatures by calling
-	 * NodeDefManager::get() for the node you're working with and the
-	 * pre-conditions listed are true.
-	 *
-	 * @pre f != NULL
-	 * @pre f->param_type == CPT_LIGHT
-	 */
-	u8 getLightNoChecks(LightBank bank, const ContentFeatures *f) const noexcept;
-
-	bool getLightBanks(u8 &lightday, u8 &lightnight,
-		const NodeDefManager *nodemgr) const;
+	inline u8 getLightRaw(LightBank bank, ContentLightingFlags f) const noexcept
+	{
+		if(f.has_light)
+			return bank == LIGHTBANK_DAY ? param1 & 0x0f : (param1 >> 4) & 0x0f;
+		return 0;
+	}
 
 	// 0 <= daylight_factor <= 1000
 	// 0 <= return value <= LIGHT_SUN
-	u8 getLightBlend(u32 daylight_factor, const NodeDefManager *nodemgr) const
+	u8 getLightBlend(u32 daylight_factor, ContentLightingFlags f) const
 	{
-		u8 lightday = 0;
-		u8 lightnight = 0;
-		getLightBanks(lightday, lightnight, nodemgr);
+		u8 lightday = getLight(LIGHTBANK_DAY, f);
+		u8 lightnight = getLight(LIGHTBANK_NIGHT, f);
 		return blend_light(daylight_factor, lightday, lightnight);
 	}
 
@@ -285,7 +279,7 @@ struct MapNode
 
 	static u32 serializedLength(u8 version);
 	void serialize(u8 *dest, u8 version) const;
-	void deSerialize(u8 *source, u8 version);
+	void deSerialize(const u8 *source, u8 version);
 
 	// Serializes or deserializes a list of nodes in bulk format (first the
 	// content of all nodes, then the param1 of all nodes, then the param2
@@ -294,9 +288,10 @@ struct MapNode
 	//   content_width = the number of bytes of content per node
 	//   params_width = the number of bytes of params per node
 	//   compressed = true to zlib-compress output
-	static SharedBuffer<u8> serializeBulk(int version,
+	//   is_mono_block = if true, nodes is array of size 1
+	static Buffer<u8> serializeBulk(int version,
 			const MapNode *nodes, u32 nodecount,
-			u8 content_width, u8 params_width);
+			u8 content_width, u8 params_width, bool is_mono_block = false);
 	static void deSerializeBulk(std::istream &is, int version,
 			MapNode *nodes, u32 nodecount,
 			u8 content_width, u8 params_width);

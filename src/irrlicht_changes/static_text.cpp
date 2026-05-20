@@ -1,11 +1,10 @@
 // Copyright (C) 2002-2012 Nikolaus Gebhardt
-// Copyright (C) 2016 Nathanaël Courant:
+// Copyright (C) 2016 Nathanaëlle Courant:
 //   Modified the functions to use EnrichedText instead of string.
 // This file is part of the "Irrlicht Engine".
 // For conditions of distribution and use, see copyright notice in irrlicht.h
 
 #include "static_text.h"
-#ifdef _IRR_COMPILE_WITH_GUI_
 
 #include <IGUIFont.h>
 #include <IVideoDriver.h>
@@ -13,10 +12,7 @@
 #include <SColor.h>
 
 #include "CGUITTFont.h"
-#include "util/string.h"
 
-namespace irr
-{
 
 namespace gui
 {
@@ -31,10 +27,6 @@ StaticText::StaticText(const EnrichedString &text, bool border,
 	RestrainTextInside(true), RightToLeft(false),
 	OverrideFont(0), LastBreakFont(0)
 {
-	#ifdef _DEBUG
-	setDebugName("StaticText");
-	#endif
-
 	setText(text);
 }
 
@@ -79,7 +71,7 @@ void StaticText::draw()
 			updateText();
 
 		core::rect<s32> r = frameRect;
-		s32 height_line = font->getDimension(L"A").Height + font->getKerningHeight();
+		s32 height_line = font->getDimension(L"A").Height + font->getKerning(L'A').Y;
 		s32 height_total = height_line * BrokenText.size();
 		if (VAlign == EGUIA_CENTER && WordWrap)
 		{
@@ -95,7 +87,6 @@ void StaticText::draw()
 				getTextWidth();
 		}
 
-		irr::video::SColor previous_color(255, 255, 255, 255);
 		for (const EnrichedString &str : BrokenText) {
 			if (HAlign == EGUIA_LOWERRIGHT)
 			{
@@ -103,7 +94,7 @@ void StaticText::draw()
 					font->getDimension(str.c_str()).Width;
 			}
 
-			if (font->getType() == irr::gui::EGFT_CUSTOM) {
+			if (font->getType() == gui::EGFT_CUSTOM) {
 				CGUITTFont *tmp = static_cast<CGUITTFont*>(font);
 				tmp->draw(str,
 					r, HAlign == EGUIA_CENTER, VAlign == EGUIA_CENTER,
@@ -239,12 +230,10 @@ video::SColor StaticText::getOverrideColor() const
 	return ColoredText.getDefaultColor();
 }
 
-#if IRRLICHT_VERSION_MAJOR == 1 && IRRLICHT_VERSION_MINOR > 8
 video::SColor StaticText::getActiveColor() const
 {
 	return getOverrideColor();
 }
-#endif
 
 //! Sets if the static text should use the overide color or the
 //! color in the gui skin.
@@ -327,7 +316,7 @@ void StaticText::updateText()
 		elWidth -= 2*skin->getSize(EGDS_TEXT_DISTANCE_X);
 	wchar_t c;
 
-	//std::vector<irr::video::SColor> colors;
+	//std::vector<video::SColor> colors;
 
 	// We have to deal with right-to-left and left-to-right differently
 	// However, most parts of the following code is the same, it's just
@@ -554,7 +543,7 @@ s32 StaticText::getTextHeight() const
 		return 0;
 
 	if (WordWrap) {
-		s32 height = font->getDimension(L"A").Height + font->getKerningHeight();
+		s32 height = font->getDimension(L"A").Height + font->getKerning(L'A').Y;
 		return height * BrokenText.size();
 	}
 	// There may be intentional new lines without WordWrap
@@ -582,8 +571,3 @@ s32 StaticText::getTextWidth() const
 
 
 } // end namespace gui
-
-} // end namespace irr
-
-
-#endif // _IRR_COMPILE_WITH_GUI_

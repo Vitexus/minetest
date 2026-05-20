@@ -8,8 +8,13 @@ on:
       - 'lib/**.cpp'
       - 'src/**.[ch]'
       - 'src/**.cpp'
+      - 'irr/**.[ch]'
+      - 'irr/**.cpp'
+      - 'irr/**.mm' # Objective-C(++)
       - '**/CMakeLists.txt'
       - 'cmake/Modules/**'
+      - 'po/**.po'
+      - 'util/ci/**'
       - '.github/workflows/macos.yml'
   pull_request:
     paths:
@@ -17,50 +22,101 @@ on:
       - 'lib/**.cpp'
       - 'src/**.[ch]'
       - 'src/**.cpp'
+      - 'irr/**.[ch]'
+      - 'irr/**.cpp'
+      - 'irr/**.mm' # Objective-C(++)
       - '**/CMakeLists.txt'
       - 'cmake/Modules/**'
+      - 'po/**.po'
+      - 'util/ci/**'
       - '.github/workflows/macos.yml'
 
-env:
-  IRRLICHT_TAG: 1.9.0mt6
-  MINETEST_GAME_REPO: https://github.com/minetest/minetest_game.git
-  MINETEST_GAME_BRANCH: master
-  MINETEST_GAME_NAME: minetest_game
-
 jobs:
-  build:
-    runs-on: macos-10.15
+  build-older-macos:
+    strategy:
+      matrix:
+        osver: [11.3]
+        xcodever: [16.2]
+        arch: ["x86_64"]
+        build_type: ["Debug"]
+        xcode: ["no"]
+        include:
+          - osver: 11.3
+            xcodever: 16.2
+            arch: "x86_64"
+            build_type: "Debug"
+            xcode: "no"
+          - osver: 11.3
+            xcodever: 16.2
+            arch: "arm64"
+            build_type: "Release"
+            xcode: "yes"
+    runs-on: macos-15
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
+
+      - name: Prepare environment
+        run: |
+          echo "REPDIR=$(pwd)" >> $GITHUB_ENV
+          echo "osver=${{matrix.osver}}" >> $GITHUB_ENV
+          echo "xcodever=${{matrix.xcodever}}" >> $GITHUB_ENV
+          echo "arch=${{matrix.arch}}" >> $GITHUB_ENV
+          echo "build_type=${{matrix.build_type}}" >> $GITHUB_ENV
+
       - name: Install deps
         run: |
-          pkgs=(cmake freetype gettext gmp hiredis jpeg jsoncpp leveldb libogg libpng libvorbis luajit zstd)
-          brew update
-          brew install ${pkgs[@]}
-          brew unlink $(brew ls --formula)
-          brew link ${pkgs[@]}
+          mkdir downloads
+          source ./util/ci/common.sh
+          source ./util/ci/macos_sdk.sh
+          install_macos_precompiled_deps $osver $arch
+          install_macos_sdk $osver "$xcodever" downloads
 
-      - name: Build
+      - name: Build with GNU Make
         run: |
-          git clone -b $MINETEST_GAME_BRANCH $MINETEST_GAME_REPO games/$MINETEST_GAME_NAME
-          rm -rvf games/$MINETEST_GAME_NAME/.git
-          git clone https://github.com/minetest/irrlicht -b $IRRLICHT_TAG lib/irrlichtmt
           mkdir build
           cd build
-          cmake .. \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.14 \
-            -DCMAKE_FIND_FRAMEWORK=LAST \
-            -DCMAKE_INSTALL_PREFIX=../build/macos/ \
-            -DRUN_IN_PLACE=FALSE \
-            -DENABLE_FREETYPE=TRUE -DENABLE_GETTEXT=TRUE
-          make -j2
-          make install
+          export DEPS_DIR=/Users/Shared/macos${osver}_${arch}_deps
+          export USE_XCODE=no
+          ../util/ci/build_macos.sh
 
-      - name: Test
+      - name: Build and Archive with Xcode
+        if: ${{matrix.xcode == 'yes'}}
         run: |
-          ./build/macos/minetest.app/Contents/MacOS/minetest --run-unittests
+          mkdir build_xcode
+          cd build_xcode
+          export DEPS_DIR=/Users/Shared/macos${osver}_${arch}_deps
+          export USE_XCODE=yes
+          ../util/ci/build_macos.sh
 
-      - uses: actions/upload-artifact@v3
+      - name: Test GNU Make build
+        run: |
+          mkdir -p "${HOME}/Library/Application Support/minetest/games/"
+          ln -s "${PWD}/games/devtest" "${HOME}/Library/Application Support/minetest/games/"
+          ./build/macos/luanti.app/Contents/MacOS/luanti --run-unittests
+
+      - name: Test XCode build
+        if: ${{matrix.xcode == 'yes'}}
+        run: |
+          ./build_xcode/build/${build_type}/luanti.app/Contents/MacOS/luanti --run-unittests
+          ./build_xcode/luanti.xcarchive/Products/Applications/luanti.app/Contents/MacOS/luanti --run-unittests
+
+      - name: Diff Resources
+        if: ${{matrix.xcode == 'yes'}}
+        run: |
+          diff -rd ./build/macos/luanti.app/Contents/Resources ./build_xcode/build/${build_type}/luanti.app/Contents/Resources || exit 1
+          diff -rd ./build/macos/luanti.app/Contents/Resources ./build_xcode/luanti.xcarchive/Products/Applications/luanti.app/Contents/Resources || exit 1
+      # Zipping the built .app preserves permissions on the contained files,
+      #   which the GitHub artifact pipeline would otherwise strip away.
+      - name: CPack
+        run: |
+          cd build
+          rm -rf macos
+          cpack -G ZIP -B macos
+          set -- macos/*.zip
+          mv "$1" "${1%.zip}${osver}-${arch}.zip"
+
+      - name: Upload
+        uses: actions/upload-artifact@v7
         with:
-          name: minetest-macos
-          path: ./build/macos/
+          archive: false
+          path: ./build/macos/*.zip

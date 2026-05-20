@@ -1,5 +1,3 @@
--- Minetest: builtin/item_entity.lua
-
 function core.spawn_item(pos, item)
 	-- Take item in any format
 	local stack = ItemStack(item)
@@ -69,6 +67,7 @@ core.register_entity(":__builtin:item", {
 			automatic_rotate = math.pi * 0.5 * 0.2 / size,
 			wield_item = self.itemstring,
 			glow = glow,
+			infotext = stack:get_description(),
 		})
 
 		-- cache for usage in on_step
@@ -103,7 +102,7 @@ core.register_entity(":__builtin:item", {
 
 	try_merge_with = function(self, own_stack, object, entity)
 		if self.age == entity.age then
-			-- Can not merge with itself
+			-- Cannot merge with itself
 			return false
 		end
 
@@ -113,7 +112,7 @@ core.register_entity(":__builtin:item", {
 				own_stack:get_meta() ~= stack:get_meta() or
 				own_stack:get_wear() ~= stack:get_wear() or
 				own_stack:get_free_space() == 0 then
-			-- Can not merge different or full stack
+			-- Cannot merge different or full stack
 			return false
 		end
 
@@ -175,6 +174,11 @@ core.register_entity(":__builtin:item", {
 		if node and node.name == "ignore" then
 			self.itemstring = ""
 			self.object:remove()
+			return
+		end
+
+		-- Prevent assert when item_entity is attached
+		if moveresult == nil and self.object:get_attach() then
 			return
 		end
 
@@ -318,16 +322,29 @@ core.register_entity(":__builtin:item", {
 		end
 	end,
 
-	on_punch = function(self, hitter)
-		local inv = hitter:get_inventory()
-		if inv and self.itemstring ~= "" then
-			local left = inv:add_item("main", self.itemstring)
-			if left and not left:is_empty() then
-				self:set_item(left)
-				return
-			end
+	on_punch = function(self, hitter, ...)
+		if self.itemstring == "" then
+			self.object:remove()
+			return
 		end
-		self.itemstring = ""
-		self.object:remove()
+
+		-- Call on_pickup callback in item definition.
+		local itemstack = ItemStack(self.itemstring)
+		local callback = itemstack:get_definition().on_pickup
+
+		local ret = callback(itemstack, hitter, {type = "object", ref = self.object}, ...)
+		if not ret then
+			-- Don't modify (and don't reset rotation)
+			return
+		end
+		itemstack = ItemStack(ret)
+
+		-- Handle the leftover itemstack
+		if itemstack:is_empty() then
+			self.itemstring = ""
+			self.object:remove()
+		else
+			self:set_item(itemstack)
+		end
 	end,
 })

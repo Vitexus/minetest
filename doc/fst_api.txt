@@ -3,8 +3,10 @@ Formspec toolkit api 0.0.3
 
 Formspec toolkit is a set of functions to create basic ui elements.
 
+You can find the files in builtin/fstk/.
 
-File: fst/ui.lua
+
+File: fstk/ui.lua
 ----------------
 
 ui.lua adds base ui interface to add additional components to.
@@ -25,7 +27,7 @@ ui.find_by_name(name) --> returns component or nil
 ^ find a component within ui
 ^ name: name of component to look for
 
-File: fst/tabview.lua
+File: fstk/tabview.lua
 ---------------------
 
 tabview_create(name, size, tabheaderpos) --> returns tabview component
@@ -50,7 +52,7 @@ methods:
   ^ tab:
   {
 	name               = "tabname",      -- name of tab to create
-	caption            = "tab caption",  -- text to show for tab header
+	caption            = "tab caption",  -- text to show for tab header. Either a string or a function: (tabview) -> string
 	cbf_button_handler = function(tabview, fields, tabname, tabdata), -- callback for button events
 	--TODO cbf_events         = function(tabview, event, tabname),           -- callback for events
 	cbf_formspec       = function(tabview, name, tabdata),            -- get formspec
@@ -59,7 +61,7 @@ methods:
 			x, -- x width
 			y  -- y height
 		},                                                            -- special size for this tab (only relevant if no parent for tabview set)
-	on_change          = function(type,old_tab,new_tab)               -- called on tab chang, type is "ENTER" or "LEAVE"
+	on_change          = function(type,old_tab,new_tab)               -- called on tab change, type is "ENTER" or "LEAVE"
   }
 - set_autosave_tab(value)
   ^ tell tabview to automatically save current tabname as "tabview_name"_LAST
@@ -75,7 +77,7 @@ methods:
   ^ handler: function(tabview,fields) --> returns true to finish button processing false to continue
 - set_parent(parent)
   ^ set parent to attach tabview to. TV's with parent are hidden if their parent
-	is hidden and they don't set their specified size.
+    is hidden and they don't set their specified size.
   ^ parent: component to attach to
 - show()
   ^ show tabview
@@ -85,8 +87,14 @@ methods:
   ^ delete tabview
 - set_fixed_size(state)
   ^ true/false set to fixed size, variable size
+- set_end_button(info)
+  ^ info is a table with:
+      * name: button name
+      * label: tooltip text
+      * icon: path to icon
+      * on_click(tabview): callback function
 
-File: fst/dialog.lua
+File: fstk/dialog.lua
 ---------------------
 Only one dialog can be shown at a time. If a dialog is closed it's parent is
 gonna be activated and shown again.
@@ -123,33 +131,30 @@ members:
 - parent
   ^ parent component to return to on exit
 
-File: fst/buttonbar.lua
+File: fstk/buttonbar.lua
 -----------------------
 
-buttonbar_create(name, cbf_buttonhandler, pos, orientation, size)
+buttonbar_create(name, pos, size, bgcolor, cbf_buttonhandler)
 ^ create a buttonbar
 ^ name: name of component (unique per ui)
-^ cbf_buttonhandler: function to be called on button pressed
-	function(buttonbar,buttonname,buttondata)
 ^ pos: position relative to upper left of current shown formspec
 	{
 		x,
 		y
 	}
-^ orientation: "vertical" or "horizontal"
 ^ size: size of bar
 	{
-		width,
-		height
+		x,
+		y
 	}
+^ bgcolor: background color as `ColorString`
+^ cbf_buttonhandler: function to be called on button pressed
+	function(fields)
 
 Class reference buttonbar:
 
 methods:
-- add_button(btn_id, caption, button_image)
-- set_parent(parent)
-  ^ set parent to attach a buttonbar to
-  ^ parent: component to attach to
+- add_button(name, caption, image, tooltip)
 - show()
   ^ show buttonbar
 - hide()

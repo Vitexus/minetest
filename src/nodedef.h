@@ -1,43 +1,20 @@
-/*
-Minetest
-Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #pragma once
 
-#include "irrlichttypes_bloated.h"
+#include <functional>
 #include <string>
 #include <iostream>
-#include <map>
+#include <memory> // shared_ptr
 #include "mapnode.h"
 #include "nameidmapping.h"
-#ifndef SERVER
-#include "client/tile.h"
-#include <IMeshManipulator.h>
-class Client;
-#endif
 #include "itemgroup.h"
-#include "sound.h" // SimpleSoundSpec
-#include "constants.h" // BS
+#include "sound_spec.h"
 #include "texture_override.h" // TextureOverride
 #include "tileanimation.h"
-
-// PROTOCOL_VERSION >= 37
-static const u8 CONTENTFEATURES_VERSION = 13;
+#include "util/pointabilities.h"
 
 class IItemDefManager;
 class ITextureSource;
@@ -47,21 +24,25 @@ class NodeResolver;
 #if BUILD_UNITTESTS
 class TestSchematic;
 #endif
+#if CHECK_CLIENT_BUILD()
+struct NodeVisuals;
+#endif
 
-enum ContentParamType
+enum ContentParamType : u8
 {
 	CPT_NONE,
 	CPT_LIGHT,
+	ContentParamType_END // Dummy for validity check
 };
 
-enum ContentParamType2
+enum ContentParamType2 : u8
 {
 	CPT2_NONE,
 	// Need 8-bit param2
 	CPT2_FULL,
 	// Flowing liquid properties
 	CPT2_FLOWINGLIQUID,
-	// Direction for chests and furnaces and such
+	// Direction for chests and furnaces and such (with axis rotation)
 	CPT2_FACEDIR,
 	// Direction for signs, torches and such
 	CPT2_WALLMOUNTED,
@@ -81,16 +62,23 @@ enum ContentParamType2
 	CPT2_GLASSLIKE_LIQUID_LEVEL,
 	// 3 bits of palette index, then degrotate
 	CPT2_COLORED_DEGROTATE,
+	// Simplified direction for chests and furnaces and such (4 directions)
+	CPT2_4DIR,
+	// 6 bits of palette index, then 4dir
+	CPT2_COLORED_4DIR,
+	// Dummy for validity check
+	ContentParamType2_END
 };
 
-enum LiquidType
+enum LiquidType : u8
 {
 	LIQUID_NONE,
 	LIQUID_FLOWING,
 	LIQUID_SOURCE,
+	LiquidType_END // Dummy for validity check
 };
 
-enum NodeBoxType
+enum NodeBoxType : u8
 {
 	NODEBOX_REGULAR, // Regular block; allows buildable_to
 	NODEBOX_FIXED, // Static separately defined box(es)
@@ -124,9 +112,9 @@ struct NodeBox
 	// NODEBOX_FIXED
 	std::vector<aabb3f> fixed;
 	// NODEBOX_WALLMOUNTED
-	aabb3f wall_top;
-	aabb3f wall_bottom;
-	aabb3f wall_side; // being at the -X side
+	aabb3f wall_top = dummybox;
+	aabb3f wall_bottom = dummybox;
+	aabb3f wall_side = dummybox; // being at the -X side
 	// NODEBOX_CONNECTED
 	// (kept externally to not bloat the structure)
 	std::shared_ptr<NodeBoxConnected> connected;
@@ -148,10 +136,13 @@ struct NodeBox
 	void reset();
 	void serialize(std::ostream &os, u16 protocol_version) const;
 	void deSerialize(std::istream &is);
+
+private:
+	/// @note the actual defaults are in reset(), see nodedef.cpp
+	static constexpr aabb3f dummybox = aabb3f({0, 0, 0});
 };
 
 struct MapNode;
-class NodeMetadata;
 
 enum LeavesStyle {
 	LEAVES_FANCY,
@@ -178,9 +169,8 @@ public:
 	WorldAlignMode world_aligned_mode;
 	AutoScale autoscale_mode;
 	int node_texture_size;
-	bool opaque_water;
+	bool translucent_liquids;
 	bool connected_glass;
-	bool enable_mesh_cache;
 	bool enable_minimap;
 
 	TextureSettings() = default;
@@ -188,7 +178,7 @@ public:
 	void readSettings();
 };
 
-enum NodeDrawType
+enum NodeDrawType : u8
 {
 	// A basic solid block
 	NDT_NORMAL,
@@ -212,10 +202,10 @@ enum NodeDrawType
 	// paramtype2 = "meshoptions" allows various forms, sizes and
 	// vertical and horizontal random offsets.
 	NDT_PLANTLIKE,
-	// Fenceposts that connect to neighbouring fenceposts with horizontal bars
+	// Fenceposts that connect to neighboring fenceposts with horizontal bars
 	NDT_FENCELIKE,
 	// Selects appropriate junction texture to connect like rails to
-	// neighbouring raillikes.
+	// neighboring raillikes.
 	NDT_RAILLIKE,
 	// Custom Lua-definable structure of multiple cuboids
 	NDT_NODEBOX,
@@ -224,7 +214,7 @@ enum NodeDrawType
 	// Uses 3 textures, one for frames, second for faces,
 	// optional third is a 'special tile' for the liquid.
 	NDT_GLASSLIKE_FRAMED,
-	// Draw faces slightly rotated and only on neighbouring nodes
+	// Draw faces slightly rotated and only on neighboring nodes
 	NDT_FIRELIKE,
 	// Enabled -> ndt_glasslike_framed, disabled -> ndt_glasslike
 	NDT_GLASSLIKE_FRAMED_OPTIONAL,
@@ -232,6 +222,9 @@ enum NodeDrawType
 	NDT_MESH,
 	// Combined plantlike-on-solid
 	NDT_PLANTLIKE_ROOTED,
+
+	// Dummy for validity check
+	NodeDrawType_END
 };
 
 // Mesh options for NDT_PLANTLIKE with CPT2_MESHOPTIONS
@@ -251,15 +244,16 @@ enum AlignStyle : u8 {
 	ALIGN_STYLE_NODE,
 	ALIGN_STYLE_WORLD,
 	ALIGN_STYLE_USER_DEFINED,
+	AlignStyle_END // Dummy for validity check
 };
 
 enum AlphaMode : u8 {
 	ALPHAMODE_BLEND,
 	ALPHAMODE_CLIP,
 	ALPHAMODE_OPAQUE,
-	ALPHAMODE_LEGACY_COMPAT, /* means either opaque or clip */
+	ALPHAMODE_LEGACY_COMPAT, /* only sent by old servers, equals OPAQUE */
+	AlphaMode_END // Dummy for validity check
 };
-
 
 /*
 	Stand-alone definition of a TileSpec (basically a server-side TileSpec)
@@ -286,8 +280,7 @@ struct TileDef
 	}
 
 	void serialize(std::ostream &os, u16 protocol_version) const;
-	void deSerialize(std::istream &is, u8 contentfeatures_version,
-		NodeDrawType drawtype);
+	void deSerialize(std::istream &is, NodeDrawType drawtype, u16 protocol_version);
 };
 
 // Defines the number of special tiles per nodedef
@@ -299,24 +292,17 @@ struct TileDef
 
 struct ContentFeatures
 {
-	/*
-		Cached stuff
-	 */
-#ifndef SERVER
-	// 0     1     2     3     4     5
-	// up    down  right left  back  front
-	TileSpec tiles[6];
-	// Special tiles
-	TileSpec special_tiles[CF_SPECIAL_COUNT];
-	u8 solidness; // Used when choosing which face is drawn
-	u8 visual_solidness; // When solidness=0, this tells how it looks like
-	bool backface_culling;
-#endif
+	// PROTOCOL_VERSION >= 37. This is legacy and should not be increased anymore,
+	// write checks that depend directly on the protocol version instead.
+	static const u8 CONTENTFEATURES_VERSION = 13;
 
 	// Server-side cached callback existence for fast skipping
 	bool has_on_construct;
 	bool has_on_destruct;
 	bool has_after_destruct;
+
+	// "float" group
+	bool floats;
 
 	/*
 		Actual data
@@ -335,10 +321,6 @@ struct ContentFeatures
 
 	enum NodeDrawType drawtype;
 	std::string mesh;
-#ifndef SERVER
-	scene::IMesh *mesh_ptr[24];
-	video::SColor minimap_color;
-#endif
 	float visual_scale; // Misc. scale parameter
 	TileDef tiledef[6];
 	// These will be drawn over the base tiles.
@@ -348,7 +330,6 @@ struct ContentFeatures
 	// The color of the node.
 	video::SColor color;
 	std::string palette_name;
-	std::vector<video::SColor> *palette;
 	// Used for waving leaves/plants
 	u8 waving;
 	// for NDT_CONNECTED pairing
@@ -357,10 +338,19 @@ struct ContentFeatures
 	std::vector<content_t> connects_to_ids;
 	// Post effect color, drawn when the camera is inside the node.
 	video::SColor post_effect_color;
+	bool post_effect_color_shaded;
 	// Flowing liquid or leveled nodebox, value = default level
 	u8 leveled;
 	// Maximum value for leveled nodes
 	u8 leveled_max;
+
+	// --- CLIENT ONLY ---
+
+#if CHECK_CLIENT_BUILD()
+	// The Client class fills this for its NodeDefManager using fillNodeVisuals,
+	// thus for ContentFeatures of a Client it is not a nullptr.
+	NodeVisuals *visuals = nullptr;
+#endif
 
 	// --- LIGHTING-RELATED ---
 
@@ -379,8 +369,8 @@ struct ContentFeatures
 	// This is used for collision detection.
 	// Also for general solidness queries.
 	bool walkable;
-	// Player can point to these
-	bool pointable;
+	// Player can point to these, point through or it is blocking
+	PointabilityType pointable;
 	// Player can dig these
 	bool diggable;
 	// Player can climb these
@@ -427,9 +417,9 @@ struct ContentFeatures
 
 	// --- SOUND PROPERTIES ---
 
-	SimpleSoundSpec sound_footstep;
-	SimpleSoundSpec sound_dig;
-	SimpleSoundSpec sound_dug;
+	SoundSpec sound_footstep;
+	SoundSpec sound_dig;
+	SoundSpec sound_dug;
 
 	// --- LEGACY ---
 
@@ -447,7 +437,7 @@ struct ContentFeatures
 	~ContentFeatures();
 	void reset();
 	void serialize(std::ostream &os, u16 protocol_version) const;
-	void deSerialize(std::istream &is);
+	void deSerialize(std::istream &is, u16 protocol_version);
 
 	/*
 		Some handy methods
@@ -458,11 +448,9 @@ struct ContentFeatures
 		case NDT_NORMAL:
 		case NDT_LIQUID:
 		case NDT_FLOWINGLIQUID:
-			alpha = ALPHAMODE_OPAQUE;
-			break;
 		case NDT_NODEBOX:
 		case NDT_MESH:
-			alpha = ALPHAMODE_LEGACY_COMPAT; // this should eventually be OPAQUE
+			alpha = ALPHAMODE_OPAQUE;
 			break;
 		default:
 			alpha = ALPHAMODE_CLIP;
@@ -470,34 +458,29 @@ struct ContentFeatures
 		}
 	}
 
-	bool needsBackfaceCulling() const
-	{
-		switch (drawtype) {
-		case NDT_TORCHLIKE:
-		case NDT_SIGNLIKE:
-		case NDT_FIRELIKE:
-		case NDT_RAILLIKE:
-		case NDT_PLANTLIKE:
-		case NDT_PLANTLIKE_ROOTED:
-		case NDT_MESH:
-			return false;
-		default:
-			return true;
-		}
-	}
 
 	bool isLiquid() const{
 		return (liquid_type != LIQUID_NONE);
 	}
-	bool sameLiquid(const ContentFeatures &f) const{
-		if(!isLiquid() || !f.isLiquid()) return false;
-		return (liquid_alternative_flowing_id == f.liquid_alternative_flowing_id);
+
+	bool isLiquidRender() const {
+		return (drawtype == NDT_LIQUID || drawtype == NDT_FLOWINGLIQUID);
 	}
 
-	bool lightingEquivalent(const ContentFeatures &other) const {
-		return light_propagates == other.light_propagates
-				&& sunlight_propagates == other.sunlight_propagates
-				&& light_source == other.light_source;
+	bool sameLiquidRender(const ContentFeatures &f) const {
+		if (!isLiquidRender() || !f.isLiquidRender())
+			return false;
+		return liquid_alternative_flowing_id == f.liquid_alternative_flowing_id &&
+			liquid_alternative_source_id == f.liquid_alternative_source_id;
+	}
+
+	ContentLightingFlags getLightingFlags() const {
+		ContentLightingFlags flags;
+		flags.has_light = param_type == CPT_LIGHT;
+		flags.light_propagates = light_propagates;
+		flags.sunlight_propagates = sunlight_propagates;
+		flags.light_source = light_source;
+		return flags;
 	}
 
 	int getGroup(const std::string &group) const
@@ -505,22 +488,7 @@ struct ContentFeatures
 		return itemgroup_get(groups, group);
 	}
 
-#ifndef SERVER
-	void updateTextures(ITextureSource *tsrc, IShaderSource *shdsrc,
-		scene::IMeshManipulator *meshmanip, Client *client, const TextureSettings &tsettings);
-#endif
-
 private:
-#ifndef SERVER
-	/*
-	 * Checks if any tile texture has any transparent pixels.
-	 * Prints a warning and returns true if that is the case, false otherwise.
-	 * This is supposed to be used for use_texture_alpha backwards compatibility.
-	 */
-	bool textureAlphaCheck(ITextureSource *tsrc, const TileDef *tiles,
-		int length);
-#endif
-
 	void setAlphaFromLegacy(u8 legacy_alpha);
 
 	u8 getAlphaForLegacy() const;
@@ -545,7 +513,6 @@ public:
 	 * \ref CONTENT_AIR, \ref CONTENT_UNKNOWN and \ref CONTENT_IGNORE.
 	 */
 	NodeDefManager();
-	~NodeDefManager();
 
 	/*!
 	 * Returns the properties for the given content type.
@@ -567,6 +534,15 @@ public:
 	 */
 	inline const ContentFeatures& get(const MapNode &n) const {
 		return get(n.getContent());
+	}
+
+	inline ContentLightingFlags getLightingFlags(content_t c) const {
+		// No bound check is necessary, since the array's length is CONTENT_MAX + 1.
+		return m_content_lighting_flag_cache[c];
+	}
+
+	inline ContentLightingFlags getLightingFlags(const MapNode &n) const {
+		return getLightingFlags(n.getContent());
 	}
 
 	/*!
@@ -678,19 +654,24 @@ public:
 	void applyTextureOverrides(const std::vector<TextureOverride> &overrides);
 
 	/*!
-	 * Only the client uses this. Loads textures and shaders required for
-	 * rendering the nodes.
-	 * @param gamedef must be a Client.
-	 * @param progress_cbk called each time a node is loaded. Arguments:
-	 * `progress_cbk_args`, number of loaded ContentFeatures, number of
-	 * total ContentFeatures.
-	 * @param progress_cbk_args passed to the callback function
+	 * Applies a function to all Content Features.
+	 * Clients need this to make use of the visuals field.
+	 * @param function to apply
 	 */
-	void updateTextures(IGameDef *gamedef, void *progress_cbk_args);
+	void applyFunction(const std::function<void(ContentFeatures&)> &function);
+
+	/*!
+	 * Returns the amount of managed content IDs.
+	 * Invalid and removed IDs are also counted.
+	 */
+	inline u32 size() const
+	{
+		return m_content_features.size();
+	}
 
 	/*!
 	 * Writes the content of this manager to the given output stream.
-	 * @param protocol_version serialization version of ContentFeatures
+	 * @param protocol_version Active network protocol version
 	 */
 	void serialize(std::ostream &os, u16 protocol_version) const;
 
@@ -698,8 +679,9 @@ public:
 	 * Restores the manager from a serialized stream.
 	 * This clears the previous state.
 	 * @param is input stream containing a serialized NodeDefManager
+	 * @param protocol_version Active network protocol version
 	 */
-	void deSerialize(std::istream &is);
+	void deSerialize(std::istream &is, u16 protocol_version);
 
 	/*!
 	 * Used to indicate that node registration has finished.
@@ -728,6 +710,12 @@ public:
 	 * Must be called after node registration has finished!
 	 */
 	void resolveCrossrefs();
+
+#if CHECK_CLIENT_BUILD()
+	// Set of all shader IDs used by leaves-like nodes
+	// (kind of a hack but is needed for dynamic shadows)
+	std::vector<u32> m_leaves_materials;
+#endif
 
 private:
 	/*!
@@ -800,20 +788,25 @@ private:
 	 * The union of all nodes' selection boxes.
 	 * Might be larger if big nodes are removed from the manager.
 	 */
-	aabb3f m_selection_box_union;
+	aabb3f m_selection_box_union{{0.0f, 0.0f, 0.0f}};
 
 	/*!
 	 * The smallest box in integer node coordinates that
 	 * contains all nodes' selection boxes.
 	 * Might be larger if big nodes are removed from the manager.
 	 */
-	core::aabbox3d<s16> m_selection_box_int_union;
+	core::aabbox3d<s16> m_selection_box_int_union{{0, 0, 0}};
 
 	/*!
 	 * NodeResolver instances to notify once node registration has finished.
 	 * Even constant NodeDefManager instances can register listeners.
 	 */
 	mutable std::vector<NodeResolver *> m_pending_resolve_callbacks;
+
+	/*!
+	 * Fast cache of content lighting flags.
+	 */
+	ContentLightingFlags m_content_lighting_flag_cache[CONTENT_MAX + 1L];
 };
 
 NodeDefManager *createNodeDefManager();

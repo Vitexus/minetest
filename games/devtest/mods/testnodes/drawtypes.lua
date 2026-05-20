@@ -1,5 +1,5 @@
 --[[ Drawtype Test: This file tests out and provides examples for
-all drawtypes in Minetest. It is attempted to keep the node
+all drawtypes in Luanti. It is attempted to keep the node
 definitions as simple and minimal as possible to keep
 side-effects to a minimum.
 
@@ -13,11 +13,12 @@ unrelated to the drawtype, stuff that is mostly there to make
 testing this node easier and more convenient.
 ]]
 
-local S = minetest.get_translator("testnodes")
+local S = core.get_translator("testnodes")
 
 -- A regular cube
-minetest.register_node("testnodes:normal", {
-	description = S("Normal Drawtype Test Node"),
+core.register_node("testnodes:normal", {
+	description = S("\"normal\" Drawtype Test Node").."\n"..
+		S("Opaque texture"),
 	drawtype = "normal",
 	tiles = { "testnodes_normal.png" },
 
@@ -25,8 +26,9 @@ minetest.register_node("testnodes:normal", {
 })
 
 -- Standard glasslike node
-minetest.register_node("testnodes:glasslike", {
-	description = S("Glasslike Drawtype Test Node"),
+core.register_node("testnodes:glasslike", {
+	description = S("\"glasslike\" Drawtype Test Node").."\n"..
+		S("Transparent node with hidden backfaces"),
 	drawtype = "glasslike",
 	paramtype = "light",
 	tiles = { "testnodes_glasslike.png" },
@@ -35,8 +37,10 @@ minetest.register_node("testnodes:glasslike", {
 })
 
 -- Glasslike framed with the two textures (normal and "detail")
-minetest.register_node("testnodes:glasslike_framed", {
-	description = S("Glasslike Framed Drawtype Test Node"),
+core.register_node("testnodes:glasslike_framed", {
+	description = S("\"glasslike_framed\" Drawtype Test Node").."\n"..
+		S("Transparent node with hidden backfaces").."\n"..
+		S("Frame connects to neighbors"),
 	drawtype = "glasslike_framed",
 	paramtype = "light",
 	tiles = {
@@ -52,8 +56,10 @@ minetest.register_node("testnodes:glasslike_framed", {
 -- Like the one above, but without the "detail" texture (texture 2).
 -- This node was added to see how the engine behaves when the "detail" texture
 -- is missing.
-minetest.register_node("testnodes:glasslike_framed_no_detail", {
-	description = S("Glasslike Framed without Detail Drawtype Test Node"),
+core.register_node("testnodes:glasslike_framed_no_detail", {
+	description = S("\"glasslike_framed\" Drawtype without Detail Test Node").."\n"..
+		S("Transparent node with hidden backfaces").."\n"..
+		S("Frame connects to neighbors, but the 'detail' tile is not used"),
 	drawtype = "glasslike_framed",
 	paramtype = "light",
 	tiles = { "testnodes_glasslike_framed2.png" },
@@ -64,8 +70,10 @@ minetest.register_node("testnodes:glasslike_framed_no_detail", {
 })
 
 
-minetest.register_node("testnodes:glasslike_framed_optional", {
-	description = S("Glasslike Framed Optional Drawtype Test Node"),
+core.register_node("testnodes:glasslike_framed_optional", {
+	description = S("\"glasslike_framed_optional\" Drawtype Test Node").."\n"..
+		S("Transparent node with hidden backfaces").."\n"..
+		S("Frame connects if 'connected_glass' setting is true"),
 	drawtype = "glasslike_framed_optional",
 	paramtype = "light",
 	tiles = {
@@ -80,8 +88,9 @@ minetest.register_node("testnodes:glasslike_framed_optional", {
 
 
 
-minetest.register_node("testnodes:allfaces", {
-	description = S("Allfaces Drawtype Test Node"),
+core.register_node("testnodes:allfaces", {
+	description = S("\"allfaces\" Drawtype Test Node").."\n"..
+		S("Transparent node with visible internal backfaces"),
 	drawtype = "allfaces",
 	paramtype = "light",
 	tiles = { "testnodes_allfaces.png" },
@@ -89,8 +98,32 @@ minetest.register_node("testnodes:allfaces", {
 	groups = { dig_immediate = 3 },
 })
 
-minetest.register_node("testnodes:allfaces_optional", {
-	description = S("Allfaces Optional Drawtype Test Node"),
+core.register_node("testnodes:allfaces_6", {
+	description = S("\"allfaces 6 Textures\" Drawtype Test Node").."\n"..
+		S("Transparent node with visible internal backfaces"),
+	drawtype = "allfaces",
+	paramtype = "light",
+	tiles = {
+			"testnodes_allfaces.png^[colorize:red",
+			"testnodes_allfaces.png^[colorize:orange",
+			"testnodes_allfaces.png^[colorize:yellow",
+			"testnodes_allfaces.png^[colorize:green",
+			"testnodes_allfaces.png^[colorize:blue",
+			"testnodes_allfaces.png^[colorize:purple"
+		},
+
+	groups = { dig_immediate = 3 },
+})
+
+local allfaces_optional_tooltip = ""..
+	S("Rendering depends on 'leaves_style' setting:").."\n"..
+	S("* 'fancy': transparent with visible internal backfaces").."\n"..
+	S("* 'simple': transparent with hidden backfaces").."\n"..
+	S("* 'opaque': opaque")
+
+core.register_node("testnodes:allfaces_optional", {
+	description = S("\"allfaces_optional\" Drawtype Test Node").."\n"..
+		allfaces_optional_tooltip,
 	drawtype = "allfaces_optional",
 	paramtype = "light",
 	tiles = { "testnodes_allfaces_optional.png" },
@@ -98,8 +131,10 @@ minetest.register_node("testnodes:allfaces_optional", {
 	groups = { dig_immediate = 3 },
 })
 
-minetest.register_node("testnodes:allfaces_optional_waving", {
-	description = S("Waving Allfaces Optional Drawtype Test Node"),
+core.register_node("testnodes:allfaces_optional_waving", {
+	description = S("Waving \"allfaces_optional\" Drawtype Test Node").."\n"..
+		allfaces_optional_tooltip.."\n"..
+		S("Waves if waving leaves are enabled by client"),
 	drawtype = "allfaces_optional",
 	paramtype = "light",
 	tiles = { "testnodes_allfaces_optional.png^[brighten" },
@@ -108,8 +143,9 @@ minetest.register_node("testnodes:allfaces_optional_waving", {
 	groups = { dig_immediate = 3 },
 })
 
-minetest.register_node("testnodes:firelike", {
-	description = S("Firelike Drawtype Test Node"),
+core.register_node("testnodes:firelike", {
+	description = S("\"firelike\" Drawtype Test Node").."\n"..
+		S("Changes shape based on neighbors"),
 	drawtype = "firelike",
 	paramtype = "light",
 	tiles = { "testnodes_firelike.png" },
@@ -119,8 +155,9 @@ minetest.register_node("testnodes:firelike", {
 	groups = { dig_immediate = 3 },
 })
 
-minetest.register_node("testnodes:fencelike", {
-	description = S("Fencelike Drawtype Test Node"),
+core.register_node("testnodes:fencelike", {
+	description = S("\"fencelike\" Drawtype Test Node").."\n"..
+		S("Connects to neighbors"),
 	drawtype = "fencelike",
 	paramtype = "light",
 	tiles = { "testnodes_fencelike.png" },
@@ -128,8 +165,9 @@ minetest.register_node("testnodes:fencelike", {
 	groups = { dig_immediate = 3 },
 })
 
-minetest.register_node("testnodes:torchlike", {
-	description = S("Floor Torchlike Drawtype Test Node"),
+core.register_node("testnodes:torchlike", {
+	description = S("Floor \"torchlike\" Drawtype Test Node").."\n"..
+		S("Always on floor"),
 	drawtype = "torchlike",
 	paramtype = "light",
 	tiles = { "testnodes_torchlike_floor.png^[colorize:#FF0000:64" },
@@ -140,8 +178,9 @@ minetest.register_node("testnodes:torchlike", {
 	groups = { dig_immediate = 3 },
 })
 
-minetest.register_node("testnodes:torchlike_wallmounted", {
-	description = S("Wallmounted Torchlike Drawtype Test Node"),
+core.register_node("testnodes:torchlike_wallmounted", {
+	description = S("Wallmounted \"torchlike\" Drawtype Test Node").."\n"..
+		S("param2 = wallmounted rotation (0..7)"),
 	drawtype = "torchlike",
 	paramtype = "light",
 	paramtype2 = "wallmounted",
@@ -157,21 +196,39 @@ minetest.register_node("testnodes:torchlike_wallmounted", {
 	groups = { dig_immediate = 3 },
 })
 
-minetest.register_node("testnodes:signlike", {
-	description = S("Floor Signlike Drawtype Test Node"),
+core.register_node("testnodes:torchlike_wallmounted_rot", {
+	description = S("Wallmounted Rotatable Torchlike Drawtype Test Node"),
+	drawtype = "torchlike",
+	paramtype = "light",
+	paramtype2 = "wallmounted",
+	wallmounted_rotate_vertical = true,
+	tiles = {
+		"testnodes_torchlike_floor.png^[colorize:#FFFF00:40",
+		"testnodes_torchlike_ceiling.png^[colorize:#FFFF00:40",
+		"testnodes_torchlike_wall.png^[colorize:#FFFF00:40",
+	},
+
+
+	walkable = false,
+	sunlight_propagates = true,
+	groups = { dig_immediate = 3 },
+})
+
+core.register_node("testnodes:signlike", {
+	description = S("Floor \"signlike\" Drawtype Test Node").."\n"..
+		S("Always on floor"),
 	drawtype = "signlike",
 	paramtype = "light",
 	tiles = { "testnodes_signlike.png^[colorize:#FF0000:64" },
 
-
 	walkable = false,
-	groups = { dig_immediate = 3 },
 	sunlight_propagates = true,
+	groups = { dig_immediate = 3 },
 })
 
-
-minetest.register_node("testnodes:signlike_wallmounted", {
-	description = S("Wallmounted Signlike Drawtype Test Node"),
+core.register_node("testnodes:signlike_wallmounted", {
+	description = S("Wallmounted \"signlike\" Drawtype Test Node").."\n"..
+		S("param2 = wallmounted rotation (0..7)"),
 	drawtype = "signlike",
 	paramtype = "light",
 	paramtype2 = "wallmounted",
@@ -183,8 +240,24 @@ minetest.register_node("testnodes:signlike_wallmounted", {
 	sunlight_propagates = true,
 })
 
-minetest.register_node("testnodes:plantlike", {
-	description = S("Plantlike Drawtype Test Node"),
+core.register_node("testnodes:signlike_rot", {
+	description = S("Wallmounted Rotatable Signlike Drawtype Test Node"),
+	drawtype = "signlike",
+	paramtype = "light",
+	paramtype2 = "wallmounted",
+	wallmounted_rotate_vertical = true,
+	tiles = { "testnodes_signlike.png^[colorize:#FFFF00:40" },
+
+
+	walkable = false,
+	groups = { dig_immediate = 3 },
+	sunlight_propagates = true,
+})
+
+
+
+core.register_node("testnodes:plantlike", {
+	description = S("\"plantlike\" Drawtype Test Node"),
 	drawtype = "plantlike",
 	paramtype = "light",
 	tiles = { "testnodes_plantlike.png" },
@@ -195,8 +268,9 @@ minetest.register_node("testnodes:plantlike", {
 	groups = { dig_immediate = 3 },
 })
 
-minetest.register_node("testnodes:plantlike_waving", {
-	description = S("Waving Plantlike Drawtype Test Node"),
+core.register_node("testnodes:plantlike_waving", {
+	description = S("Waving \"plantlike\" Drawtype Test Node").."\n"..
+		S("Waves if waving plants are enabled by client"),
 	drawtype = "plantlike",
 	paramtype = "light",
 	tiles = { "testnodes_plantlike_waving.png" },
@@ -208,8 +282,9 @@ minetest.register_node("testnodes:plantlike_waving", {
 	groups = { dig_immediate = 3 },
 })
 
-minetest.register_node("testnodes:plantlike_wallmounted", {
-	description = S("Wallmounted Plantlike Drawtype Test Node"),
+core.register_node("testnodes:plantlike_wallmounted", {
+	description = S("Wallmounted \"plantlike\" Drawtype Test Node").."\n"..
+		S("param2 = wallmounted rotation (0..7)"),
 	drawtype = "plantlike",
 	paramtype = "light",
 	paramtype2 = "wallmounted",
@@ -225,7 +300,7 @@ minetest.register_node("testnodes:plantlike_wallmounted", {
 
 -- param2 will rotate
 local function rotate_on_rightclick(pos, node, clicker)
-	local def = minetest.registered_nodes[node.name]
+	local def = core.registered_nodes[node.name]
 	local aux1 = clicker:get_player_control().aux1
 
 	local deg, deg_max
@@ -243,13 +318,14 @@ local function rotate_on_rightclick(pos, node, clicker)
 
 	deg = (deg + (aux1 and 10 or 1)) % deg_max
 	node.param2 = color * color_mult + deg
-	minetest.swap_node(pos, node)
-	minetest.chat_send_player(clicker:get_player_name(),
+	core.swap_node(pos, node)
+	core.chat_send_player(clicker:get_player_name(),
 		"Rotation is now " .. deg .. " / " .. deg_max)
 end
 
-minetest.register_node("testnodes:plantlike_degrotate", {
-	description = S("Degrotate Plantlike Drawtype Test Node"),
+core.register_node("testnodes:plantlike_degrotate", {
+	description = S("Degrotate \"plantlike\" Drawtype Test Node").."\n"..
+		S("param2 = horizontal rotation (0..239)"),
 	drawtype = "plantlike",
 	paramtype = "light",
 	paramtype2 = "degrotate",
@@ -262,13 +338,14 @@ minetest.register_node("testnodes:plantlike_degrotate", {
 	groups = { dig_immediate = 3 },
 })
 
-minetest.register_node("testnodes:mesh_degrotate", {
-	description = S("Degrotate Mesh Drawtype Test Node"),
+core.register_node("testnodes:mesh_degrotate", {
+	description = S("Degrotate \"mesh\" Drawtype Test Node").."\n"..
+		S("param2 = horizontal rotation (0..239)"),
 	drawtype = "mesh",
 	paramtype = "light",
 	paramtype2 = "degrotate",
 	mesh = "testnodes_ocorner.obj",
-	tiles = { "testnodes_mesh_stripes2.png" },
+	tiles = { "testnodes_mesh_stripes7.png" },
 
 	on_rightclick = rotate_on_rightclick,
 	place_param2 = 10, -- 15°
@@ -276,14 +353,15 @@ minetest.register_node("testnodes:mesh_degrotate", {
 	groups = { dig_immediate = 3 },
 })
 
-minetest.register_node("testnodes:mesh_colordegrotate", {
-	description = S("Color Degrotate Mesh Drawtype Test Node"),
+core.register_node("testnodes:mesh_colordegrotate", {
+	description = S("Colordegrotate \"mesh\" Drawtype Test Node").."\n"..
+		S("param2 = color + horizontal rotation (0..23, 32..55, ...)"),
 	drawtype = "mesh",
 	paramtype = "light",
 	paramtype2 = "colordegrotate",
 	palette = "testnodes_palette_facedir.png",
 	mesh = "testnodes_ocorner.obj",
-	tiles = { "testnodes_mesh_stripes3.png" },
+	tiles = { "testnodes_mesh_stripes8.png" },
 
 	on_rightclick = rotate_on_rightclick,
 	-- color index 1, 1 step (=15°) rotated
@@ -293,8 +371,9 @@ minetest.register_node("testnodes:mesh_colordegrotate", {
 })
 
 -- param2 will change height
-minetest.register_node("testnodes:plantlike_leveled", {
-	description = S("Leveled Plantlike Drawtype Test Node"),
+core.register_node("testnodes:plantlike_leveled", {
+	description = S("Leveled \"plantlike\" Drawtype Test Node").."\n"..
+		S("param2 = height (0..255)"),
 	drawtype = "plantlike",
 	paramtype = "light",
 	paramtype2 = "leveled",
@@ -311,8 +390,9 @@ minetest.register_node("testnodes:plantlike_leveled", {
 })
 
 -- param2 changes shape
-minetest.register_node("testnodes:plantlike_meshoptions", {
-	description = S("Meshoptions Plantlike Drawtype Test Node"),
+core.register_node("testnodes:plantlike_meshoptions", {
+	description = S("Meshoptions \"plantlike\" Drawtype Test Node").."\n"..
+		S("param2 = plant shape"),
 	drawtype = "plantlike",
 	paramtype = "light",
 	paramtype2 = "meshoptions",
@@ -323,8 +403,8 @@ minetest.register_node("testnodes:plantlike_meshoptions", {
 	groups = { dig_immediate = 3 },
 })
 
-minetest.register_node("testnodes:plantlike_rooted", {
-	description = S("Rooted Plantlike Drawtype Test Node"),
+core.register_node("testnodes:plantlike_rooted", {
+	description = S("\"rooted_plantlike\" Drawtype Test Node"),
 	drawtype = "plantlike_rooted",
 	paramtype = "light",
 	tiles = { "testnodes_plantlike_rooted_base.png" },
@@ -333,8 +413,9 @@ minetest.register_node("testnodes:plantlike_rooted", {
 	groups = { dig_immediate = 3 },
 })
 
-minetest.register_node("testnodes:plantlike_rooted_wallmounted", {
-	description = S("Wallmounted Rooted Plantlike Drawtype Test Node"),
+core.register_node("testnodes:plantlike_rooted_wallmounted", {
+	description = S("Wallmounted \"rooted_plantlike\" Drawtype Test Node").."\n"..
+		S("param2 = wallmounted rotation (0..7)"),
 	drawtype = "plantlike_rooted",
 	paramtype = "light",
 	paramtype2 = "wallmounted",
@@ -347,8 +428,9 @@ minetest.register_node("testnodes:plantlike_rooted_wallmounted", {
 	groups = { dig_immediate = 3 },
 })
 
-minetest.register_node("testnodes:plantlike_rooted_waving", {
-	description = S("Waving Rooted Plantlike Drawtype Test Node"),
+core.register_node("testnodes:plantlike_rooted_waving", {
+	description = S("Waving \"rooted_plantlike\" Drawtype Test Node").."\n"..
+		S("Waves if waving plants are enabled by client"),
 	drawtype = "plantlike_rooted",
 	paramtype = "light",
 	tiles = {
@@ -363,8 +445,9 @@ minetest.register_node("testnodes:plantlike_rooted_waving", {
 })
 
 -- param2 changes height
-minetest.register_node("testnodes:plantlike_rooted_leveled", {
-	description = S("Leveled Rooted Plantlike Drawtype Test Node"),
+core.register_node("testnodes:plantlike_rooted_leveled", {
+	description = S("Leveled \"rooted_plantlike\" Drawtype Test Node").."\n"..
+		S("param2 = height (0..255)"),
 	drawtype = "plantlike_rooted",
 	paramtype = "light",
 	paramtype2 = "leveled",
@@ -384,8 +467,9 @@ minetest.register_node("testnodes:plantlike_rooted_leveled", {
 })
 
 -- param2 changes shape
-minetest.register_node("testnodes:plantlike_rooted_meshoptions", {
-	description = S("Meshoptions Rooted Plantlike Drawtype Test Node"),
+core.register_node("testnodes:plantlike_rooted_meshoptions", {
+	description = S("Meshoptions \"rooted_plantlike\" Drawtype Test Node").."\n"..
+		S("param2 = plant shape"),
 	drawtype = "plantlike_rooted",
 	paramtype = "light",
 	paramtype2 = "meshoptions",
@@ -402,8 +486,9 @@ minetest.register_node("testnodes:plantlike_rooted_meshoptions", {
 })
 
 -- param2 changes rotation
-minetest.register_node("testnodes:plantlike_rooted_degrotate", {
-	description = S("Degrotate Rooted Plantlike Drawtype Test Node"),
+core.register_node("testnodes:plantlike_rooted_degrotate", {
+	description = S("Degrotate \"rooted_plantlike\" Drawtype Test Node").."\n"..
+		S("param2 = horizontal rotation (0..239)"),
 	drawtype = "plantlike_rooted",
 	paramtype = "light",
 	paramtype2 = "degrotate",
@@ -423,8 +508,9 @@ minetest.register_node("testnodes:plantlike_rooted_degrotate", {
 -- DRAWTYPE ONLY, NO LIQUID PHYSICS!
 -- Liquid ranges 0 to 8
 for r = 0, 8 do
-	minetest.register_node("testnodes:liquid_"..r, {
-		description = S("Source Liquid Drawtype Test Node, Range @1", r),
+	core.register_node("testnodes:liquid_"..r, {
+		description = S("\"liquid\" Drawtype Test Node, Range @1", r).."\n"..
+			S("Drawtype only; all liquid physics are disabled"),
 		drawtype = "liquid",
 		paramtype = "light",
 		tiles = {
@@ -444,8 +530,10 @@ for r = 0, 8 do
 		liquid_alternative_source = "testnodes:liquid_"..r,
 		groups = { dig_immediate = 3 },
 	})
-	minetest.register_node("testnodes:liquid_flowing_"..r, {
-		description = S("Flowing Liquid Drawtype Test Node, Range @1", r),
+	core.register_node("testnodes:liquid_flowing_"..r, {
+		description = S("\"flowingliquid\" Drawtype Test Node, Range @1", r).."\n"..
+			S("Drawtype only; all liquid physics are disabled").."\n"..
+			S("param2 = flowing liquid level"),
 		drawtype = "flowingliquid",
 		paramtype = "light",
 		paramtype2 = "flowingliquid",
@@ -470,8 +558,10 @@ for r = 0, 8 do
 end
 
 -- Waving liquid test (drawtype only)
-minetest.register_node("testnodes:liquid_waving", {
-	description = S("Waving Source Liquid Drawtype Test Node"),
+core.register_node("testnodes:liquid_waving", {
+	description = S("Waving \"liquid\" Drawtype Test Node").."\n"..
+		S("Drawtype only; all liquid physics are disabled").."\n"..
+		S("Waves if waving liquids are enabled by client"),
 	drawtype = "liquid",
 	paramtype = "light",
 	tiles = {
@@ -492,8 +582,11 @@ minetest.register_node("testnodes:liquid_waving", {
 	liquid_alternative_source = "testnodes:liquid_waving",
 	groups = { dig_immediate = 3 },
 })
-minetest.register_node("testnodes:liquid_flowing_waving", {
-	description = S("Waving Flowing Liquid Drawtype Test Node"),
+core.register_node("testnodes:liquid_flowing_waving", {
+	description = S("Waving \"flowingliquid\" Drawtype Test Node").."\n"..
+		S("Drawtype only; all liquid physics are disabled").."\n"..
+		S("param2 = flowing liquid level").."\n"..
+		S("Waves if waving liquids are enabled by client"),
 	drawtype = "flowingliquid",
 	paramtype = "light",
 	paramtype2 = "flowingliquid",
@@ -517,10 +610,14 @@ minetest.register_node("testnodes:liquid_flowing_waving", {
 })
 
 -- Invisible node
-minetest.register_node("testnodes:airlike", {
-	description = S("Airlike Drawtype Test Node"),
+core.register_node("testnodes:airlike", {
+	description = S("\"airlike\" Drawtype Test Node").."\n"..
+		S("Invisible node").."\n"..
+		S("Inventory/wield image = no_texture_airlike.png"),
 	drawtype = "airlike",
 	paramtype = "light",
+	-- inventory/wield images are left empty to make sure the 'no texture'
+	-- fallback for airlike nodes is working properly.
 
 
 	walkable = false,
@@ -529,8 +626,9 @@ minetest.register_node("testnodes:airlike", {
 })
 
 -- param2 changes liquid height
-minetest.register_node("testnodes:glassliquid", {
-	description = S("Glasslike Liquid Level Drawtype Test Node"),
+core.register_node("testnodes:glassliquid", {
+	description = S("\"glasslike_framed\" Drawtype with Liquid Test Node").."\n"..
+		S("param2 = liquid level (0..63)"),
 	drawtype = "glasslike_framed",
 	paramtype = "light",
 	paramtype2 = "glasslikeliquidlevel",
@@ -549,28 +647,30 @@ minetest.register_node("testnodes:glassliquid", {
 -- should connect to nodes of the same "rail type" (=same shape, different
 -- color) only.
 local rails = {
-	{ "rail", {"testnodes_rail_straight.png", "testnodes_rail_curved.png", "testnodes_rail_t_junction.png", "testnodes_rail_crossing.png"} },
-	{ "line", {"testnodes_line_straight.png", "testnodes_line_curved.png", "testnodes_line_t_junction.png", "testnodes_line_crossing.png"}, },
-	{ "street", {"testnodes_street_straight.png", "testnodes_street_curved.png", "testnodes_street_t_junction.png", "testnodes_street_crossing.png"}, },
+	{ "rail", {"testnodes_rail_straight.png", "testnodes_rail_curved.png", "testnodes_rail_t_junction.png", "testnodes_rail_crossing.png"}, S("Connects to rails")},
+	{ "line", {"testnodes_line_straight.png", "testnodes_line_curved.png", "testnodes_line_t_junction.png", "testnodes_line_crossing.png"}, S("Connects to lines")},
+	{ "street", {"testnodes_street_straight.png", "testnodes_street_curved.png", "testnodes_street_t_junction.png", "testnodes_street_crossing.png"}, S("Connects to streets")},
 	-- the "groupless" nodes are nodes in which the "connect_to_raillike" group is not set
-	{ "groupless", {"testnodes_rail2_straight.png", "testnodes_rail2_curved.png", "testnodes_rail2_t_junction.png", "testnodes_rail2_crossing.png"} },
+	{ "groupless", {"testnodes_rail2_straight.png", "testnodes_rail2_curved.png", "testnodes_rail2_t_junction.png", "testnodes_rail2_crossing.png"}, S("Connects to 'groupless' rails") },
 }
 local colors = { "", "cyan", "red" }
 
 for r=1, #rails do
 	local id = rails[r][1]
 	local tiles = rails[r][2]
+	local tt = rails[r][3]
 	local raillike_group
 	if id ~= "groupless" then
-		raillike_group = minetest.raillike_group(id)
+		raillike_group = core.raillike_group(id)
 	end
 	for c=1, #colors do
 		local color
 		if colors[c] ~= "" then
 			color = colors[c]
 		end
-		minetest.register_node("testnodes:raillike_"..id..c, {
-			description = S("Raillike Drawtype Test Node: @1 @2", id, c),
+		core.register_node("testnodes:raillike_"..id..c, {
+			description = S("\"raillike\" Drawtype Test Node: @1 @2", id, c).."\n"..
+				tt,
 			drawtype = "raillike",
 			paramtype = "light",
 			tiles = tiles,
@@ -591,39 +691,37 @@ end
 
 
 -- Add visual_scale variants of previous nodes for half and double size
-local scale = function(subname, desc_double, desc_half)
+local scale = function(subname, append)
 	local original = "testnodes:"..subname
-	local def = table.copy(minetest.registered_items[original])
+	local def = table.copy(core.registered_items[original])
+	local orig_desc
+	if append and type(append) == "string" then
+		orig_desc = ItemStack(original):get_short_description()
+		orig_desc = orig_desc .. "\n" .. append
+	elseif append ~= false then
+		orig_desc = ItemStack(original):get_description()
+	else
+		orig_desc = ItemStack(original):get_short_description()
+	end
 	def.visual_scale = 2.0
-	def.description = desc_double
-	minetest.register_node("testnodes:"..subname.."_double", def)
-	def = table.copy(minetest.registered_items[original])
+	def.description = S("Double-sized @1", orig_desc)
+	core.register_node("testnodes:"..subname.."_double", def)
+	def = table.copy(core.registered_items[original])
 	def.visual_scale = 0.5
-	def.description = desc_half
-	minetest.register_node("testnodes:"..subname.."_half", def)
+	def.description = S("Half-sized @1", orig_desc)
+	core.register_node("testnodes:"..subname.."_half", def)
 end
 
-scale("allfaces",
-	S("Double-sized Allfaces Drawtype Test Node"),
-	S("Half-sized Allfaces Drawtype Test Node"))
-scale("allfaces_optional",
-	S("Double-sized Allfaces Optional Drawtype Test Node"),
-	S("Half-sized Allfaces Optional Drawtype Test Node"))
-scale("allfaces_optional_waving",
-	S("Double-sized Waving Allfaces Optional Drawtype Test Node"),
-	S("Half-sized Waving Allfaces Optional Drawtype Test Node"))
-scale("plantlike",
-	S("Double-sized Plantlike Drawtype Test Node"),
-	S("Half-sized Plantlike Drawtype Test Node"))
-scale("plantlike_wallmounted",
-	S("Double-sized Wallmounted Plantlike Drawtype Test Node"),
-	S("Half-sized Wallmounted Plantlike Drawtype Test Node"))
-scale("torchlike_wallmounted",
-	S("Double-sized Wallmounted Torchlike Drawtype Test Node"),
-	S("Half-sized Wallmounted Torchlike Drawtype Test Node"))
-scale("signlike_wallmounted",
-	S("Double-sized Wallmounted Signlike Drawtype Test Node"),
-	S("Half-sized Wallmounted Signlike Drawtype Test Node"))
-scale("firelike",
-	S("Double-sized Firelike Drawtype Test Node"),
-	S("Half-sized Firelike Drawtype Test Node"))
+local allfaces_newsize_tt = ""..
+	S("Rendering depends on 'leaves_style' setting:").."\n"..
+	S("* 'fancy'/'simple': transparent").."\n"..
+	S("* 'opaque': opaque")
+
+scale("allfaces", S("Transparent node"))
+scale("allfaces_optional", allfaces_newsize_tt)
+scale("allfaces_optional_waving", allfaces_newsize_tt .. "\n" .. S("Waving if waving leaves are enabled by client"))
+scale("plantlike")
+scale("plantlike_wallmounted")
+scale("torchlike_wallmounted")
+scale("signlike_wallmounted")
+scale("firelike")

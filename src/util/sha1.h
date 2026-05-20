@@ -26,7 +26,15 @@ SOFTWARE.
 
 #pragma once
 
-typedef unsigned int Uint32;
+#if !defined(IN_HASHING_CPP) && !defined(IN_SHA1_CPP)
+#error do not include directly
+#endif
+
+#include <cstdint>
+#include <string>
+#include <string_view>
+
+typedef uint32_t Uint32;
 
 class SHA1
 {
@@ -38,17 +46,21 @@ private:
 	Uint32 H3 = 0x10325476;
 	Uint32 H4 = 0xc3d2e1f0;
 	unsigned char bytes[64];
-	int unprocessedBytes = 0;
+	Uint32 unprocessedBytes = 0;
 	Uint32 size = 0;
 	void process();
 
 public:
 	SHA1();
 	~SHA1();
-	void addBytes(const char *data, int num);
-	unsigned char *getDigest();
-	// utility methods
-	static Uint32 lrot(Uint32 x, int bits);
-	static void storeBigEndianUint32(unsigned char *byte, Uint32 num);
-	static void hexPrinter(unsigned char *c, int l);
+	void addBytes(const char *data, Uint32 num);
+	inline void addBytes(std::string_view data) {
+		addBytes(data.data(), data.size());
+	}
+	void getDigest(unsigned char *to);
+	inline std::string getDigest() {
+		std::string ret(20, '\000');
+		getDigest(reinterpret_cast<unsigned char*>(ret.data()));
+		return ret;
+	}
 };

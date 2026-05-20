@@ -1,30 +1,18 @@
-/*
-Minetest
-Copyright (C) 2010-2020 celeron55, Perttu Ahola <celeron55@gmail.com>
-Copyright (C) 2015-2020 paramat
-Copyright (C) 2013-2016 kwolekr, Ryan Kwolek <kwolekr@minetest.net>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2010-2020 celeron55, Perttu Ahola <celeron55@gmail.com>
+// Copyright (C) 2015-2020 paramat
+// Copyright (C) 2013-2016 kwolekr, Ryan Kwolek <kwolekr@minetest.net>
 
 #pragma once
 
+#include "constants.h"
 #include "noise.h"
 #include "nodedef.h"
 #include "util/string.h"
 #include "util/container.h"
+#include <utility>
+#include <set>
 
 #define MAPGEN_DEFAULT MAPGEN_V7
 #define MAPGEN_DEFAULT_NAME "v7"
@@ -43,20 +31,15 @@ class Settings;
 class MMVManip;
 class NodeDefManager;
 
-extern FlagDesc flagdesc_mapgen[];
-extern FlagDesc flagdesc_gennotify[];
+extern const FlagDesc flagdesc_mapgen[];
+extern const FlagDesc flagdesc_gennotify[];
 
-class Biome;
 class BiomeGen;
 struct BiomeParams;
 class BiomeManager;
 class EmergeParams;
-class EmergeManager;
-class MapBlock;
-class VoxelManipulator;
 struct BlockMakeData;
 class VoxelArea;
-class Map;
 
 enum MapgenObject {
 	MGOBJ_VMANIP,
@@ -75,29 +58,41 @@ enum GenNotifyType {
 	GENNOTIFY_LARGECAVE_BEGIN,
 	GENNOTIFY_LARGECAVE_END,
 	GENNOTIFY_DECORATION,
+	GENNOTIFY_CUSTOM, // user-defined data
 	NUM_GENNOTIFY_TYPES
-};
-
-struct GenNotifyEvent {
-	GenNotifyType type;
-	v3s16 pos;
-	u32 id;
 };
 
 class GenerateNotifier {
 public:
+	struct GenNotifyEvent {
+		GenNotifyType type;
+		v3s16 pos;
+		u32 id; // for GENNOTIFY_DECORATION
+	};
+
 	// Use only for temporary Mapgen objects with no map generation!
 	GenerateNotifier() = default;
-	GenerateNotifier(u32 notify_on, const std::set<u32> *notify_on_deco_ids);
+	// normal constructor
+	GenerateNotifier(u32 notify_on, const std::set<u32> *notify_on_deco_ids,
+		const std::set<std::string> *notify_on_custom);
 
-	bool addEvent(GenNotifyType type, v3s16 pos, u32 id=0);
-	void getEvents(std::map<std::string, std::vector<v3s16> > &event_map);
+	bool addEvent(GenNotifyType type, v3s16 pos);
+	bool addDecorationEvent(v3s16 pos, u32 deco_id);
+	bool setCustom(const std::string &key, const std::string &value);
+	void getEvents(std::map<std::string, std::vector<v3s16>> &map) const;
+	const StringMap &getCustomData() const { return m_notify_custom; }
 	void clearEvents();
 
 private:
 	u32 m_notify_on = 0;
 	const std::set<u32> *m_notify_on_deco_ids = nullptr;
-	std::list<GenNotifyEvent> m_notify_events;
+	const std::set<std::string> *m_notify_on_custom = nullptr;
+	std::vector<GenNotifyEvent> m_notify_events;
+	StringMap m_notify_custom;
+
+	inline bool shouldNotifyOn(GenNotifyType type) const {
+		return m_notify_on & (1 << type);
+	}
 };
 
 // Order must match the order of 'static MapgenDesc g_reg_mapgens[]' in mapgen.cpp
@@ -118,7 +113,7 @@ struct MapgenParams {
 	virtual ~MapgenParams();
 
 	MapgenType mgtype = MAPGEN_DEFAULT;
-	s16 chunksize = 5;
+	v3s16 chunksize = v3s16(5);
 	u64 seed = 0;
 	s16 water_level = 1;
 	s16 mapgen_limit = MAX_MAP_GENERATION_LIMIT;
@@ -128,9 +123,6 @@ struct MapgenParams {
 
 	BiomeParams *bparams = nullptr;
 
-	s16 mapgen_edge_min = -MAX_MAP_GENERATION_LIMIT;
-	s16 mapgen_edge_max = MAX_MAP_GENERATION_LIMIT;
-
 	virtual void readParams(const Settings *settings);
 	virtual void writeParams(Settings *settings) const;
 	// Default settings for g_settings such as flags
@@ -138,9 +130,8 @@ struct MapgenParams {
 
 	s32 getSpawnRangeMax();
 
-private:
-	void calcMapgenEdges();
-	bool m_mapgen_edges_calculated = false;
+	// Mostly arbitrary limit
+	constexpr static u32 MAX_CHUNK_VOLUME = 2000;
 };
 
 
@@ -155,6 +146,7 @@ private:
 */
 class Mapgen {
 public:
+	// Seed used for noises (truncated from the map seed)
 	s32 seed = 0;
 	int water_level = 0;
 	int mapgen_limit = 0;
@@ -163,11 +155,16 @@ public:
 	int id = -1;
 
 	MMVManip *vm = nullptr;
+	// Note that this contains various things the mapgens *can* use, so biomegen
+	// might be NULL while m_emerge->biomegen is not.
+	EmergeParams *m_emerge = nullptr;
 	const NodeDefManager *ndef = nullptr;
 
+	// Chunk-specific seed used to place ores and decorations
 	u32 blockseed;
 	s16 *heightmap = nullptr;
 	biome_t *biomemap = nullptr;
+	// Chunk size in nodes
 	v3s16 csize;
 
 	BiomeGen *biomegen = nullptr;
@@ -175,7 +172,7 @@ public:
 
 	Mapgen() = default;
 	Mapgen(int mapgenid, MapgenParams *params, EmergeParams *emerge);
-	virtual ~Mapgen() = default;
+	virtual ~Mapgen();
 	DISABLE_CLASS_COPY(Mapgen);
 
 	virtual MapgenType getType() const { return MAPGEN_INVALID; }
@@ -190,12 +187,38 @@ public:
 
 	void updateLiquid(UniqueQueue<v3s16> *trans_liquid, v3s16 nmin, v3s16 nmax);
 
+	/**
+	 * Set light in entire area to fixed value.
+	 * @param light Light value (contains both banks)
+	 * @param nmin Area to operate on
+	 * @param nmax ^
+	 */
 	void setLighting(u8 light, v3s16 nmin, v3s16 nmax);
-	void lightSpread(VoxelArea &a, std::queue<std::pair<v3s16, u8>> &queue,
-		const v3s16 &p, u8 light);
+	/**
+	 * Run all lighting calculations.
+	 * @param nmin Area to spread sunlight in
+	 * @param nmax ^
+	 * @param full_nmin Area to recalculate light in
+	 * @param full_nmax ^
+	 * @param propagate_shadow see propagateSunlight()
+	 */
 	void calcLighting(v3s16 nmin, v3s16 nmax, v3s16 full_nmin, v3s16 full_nmax,
 		bool propagate_shadow = true);
+	/**
+	 * Spread sunlight from the area above downwards.
+	 * Note that affected nodes have their night bank cleared so you want to
+	 * run a light spread afterwards.
+	 * @param nmin Area to operate on
+	 * @param nmax ^
+	 * @param propagate_shadow Ignore obstructions above and spread sun anyway
+	 */
 	void propagateSunlight(v3s16 nmin, v3s16 nmax, bool propagate_shadow);
+	/**
+	 * Spread light in the given area.
+	 * Artificial light is taken from nodedef, sunlight must already be set.
+	 * @param nmin Area to operate on
+	 * @param nmax ^
+	 */
 	void spreadLight(const v3s16 &nmin, const v3s16 &nmax);
 
 	virtual void makeChunk(BlockMakeData *data) {}
@@ -218,10 +241,22 @@ public:
 	static void setDefaultSettings(Settings *settings);
 
 private:
+	/**
+	 * Spread light to the node at the given position, add to queue if changed.
+	 * The given light value is diminished once.
+	 * @param a VoxelArea being operated on
+	 * @param queue Queue for later lightSpread() calls
+	 * @param p Node position
+	 * @param light Light value (contains both banks)
+	 *
+	 */
+	void lightSpread(VoxelArea &a, std::queue<std::pair<v3s16, u8>> &queue,
+		const v3s16 &p, u8 light);
+
 	// isLiquidHorizontallyFlowable() is a helper function for updateLiquid()
 	// that checks whether there are floodable nodes without liquid beneath
 	// the node at index vi.
-	inline bool isLiquidHorizontallyFlowable(u32 vi, v3s16 em);
+	inline bool isLiquidHorizontallyFlowable(u32 vi, v3s32 em);
 };
 
 /*
@@ -251,10 +286,9 @@ public:
 	virtual void generateDungeons(s16 max_stone_y);
 
 protected:
-	EmergeParams *m_emerge;
-	BiomeManager *m_bmgr;
+	BiomeManager *m_bmgr = nullptr;
 
-	Noise *noise_filler_depth;
+	Noise *noise_filler_depth = nullptr;
 
 	v3s16 node_min;
 	v3s16 node_max;
@@ -291,3 +325,7 @@ protected:
 	s16 dungeon_ymin;
 	s16 dungeon_ymax;
 };
+
+// Calculate exact edges of the outermost mapchunks that are within the set
+// mapgen_limit. Returns the minimum and maximum edges in nodes in that order.
+std::pair<v3s16, v3s16> get_mapgen_edges(s16 mapgen_limit, v3s16 chunksize);

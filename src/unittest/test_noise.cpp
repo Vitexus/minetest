@@ -1,21 +1,6 @@
-/*
-Minetest
-Copyright (C) 2010-2014 kwolekr, Ryan Kwolek <kwolekr@minetest.net>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2010-2014 kwolekr, Ryan Kwolek <kwolekr@minetest.net>
 
 #include "test.h"
 
@@ -30,8 +15,14 @@ public:
 
 	void runTests(IGameDef *gamedef);
 
+	void testNoise2dAtOriginWithZeroSeed();
+	void testNoise2dWithMaxSeed();
+	void testNoise2dWithFunPrimes();
 	void testNoise2dPoint();
 	void testNoise2dBulk();
+	void testNoise3dAtOriginWithZeroSeed();
+	void testNoise3dWithMaxSeed();
+	void testNoise3dWithFunPrimes();
 	void testNoise3dPoint();
 	void testNoise3dBulk();
 	void testNoiseInvalidParams();
@@ -44,14 +35,41 @@ static TestNoise g_test_instance;
 
 void TestNoise::runTests(IGameDef *gamedef)
 {
+	TEST(testNoise2dAtOriginWithZeroSeed);
+	TEST(testNoise2dWithMaxSeed);
+	TEST(testNoise2dWithFunPrimes);
 	TEST(testNoise2dPoint);
 	TEST(testNoise2dBulk);
+	TEST(testNoise3dAtOriginWithZeroSeed);
+	TEST(testNoise3dWithMaxSeed);
+	TEST(testNoise3dWithFunPrimes);
 	TEST(testNoise3dPoint);
 	TEST(testNoise3dBulk);
 	TEST(testNoiseInvalidParams);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+
+void TestNoise::testNoise2dAtOriginWithZeroSeed()
+{
+	float actual{ noise2d(0, 0, 0) };
+	constexpr float expected{ -0.281791f };
+	UASSERT(std::fabs(actual - expected) <= 0.00001);
+}
+
+void TestNoise::testNoise2dWithMaxSeed()
+{
+	float actual{ noise2d(4096, 4096, 2147483647) };
+	constexpr float expected{ 0.950606f };
+	UASSERT(std::fabs(actual - expected) <= 0.00001);
+}
+
+void TestNoise::testNoise2dWithFunPrimes()
+{
+	float actual{ noise2d(-3947, -2333, 7027) };
+	constexpr float expected{ -0.294907f };
+	UASSERT(std::fabs(actual - expected) <= 0.00001);
+}
 
 void TestNoise::testNoise2dPoint()
 {
@@ -60,7 +78,7 @@ void TestNoise::testNoise2dPoint()
 	u32 i = 0;
 	for (u32 y = 0; y != 10; y++)
 	for (u32 x = 0; x != 10; x++, i++) {
-		float actual   = NoisePerlin2D(&np_normal, x, y, 1337);
+		float actual   = NoiseFractal2D(&np_normal, x, y, 1337);
 		float expected = expected_2d_results[i];
 		UASSERT(std::fabs(actual - expected) <= 0.00001);
 	}
@@ -70,13 +88,34 @@ void TestNoise::testNoise2dBulk()
 {
 	NoiseParams np_normal(20, 40, v3f(50, 50, 50), 9,  5, 0.6, 2.0);
 	Noise noise_normal_2d(&np_normal, 1337, 10, 10);
-	float *noisevals = noise_normal_2d.perlinMap2D(0, 0, NULL);
+	float *noisevals = noise_normal_2d.noiseMap2D(0, 0, NULL);
 
 	for (u32 i = 0; i != 10 * 10; i++) {
 		float actual   = noisevals[i];
 		float expected = expected_2d_results[i];
 		UASSERT(std::fabs(actual - expected) <= 0.00001);
 	}
+}
+
+void TestNoise::testNoise3dAtOriginWithZeroSeed()
+{
+	float actual{ noise2d(0, 0, 0) };
+	constexpr float expected{ -0.281791f };
+	UASSERT(std::fabs(actual - expected) <= 0.00001);
+}
+
+void TestNoise::testNoise3dWithMaxSeed()
+{
+	float actual{ noise3d(4096, 4096, 4096, 2147483647) };
+	constexpr float expected{ -0.775243f };
+	UASSERT(std::fabs(actual - expected) <= 0.00001);
+}
+
+void TestNoise::testNoise3dWithFunPrimes()
+{
+	float actual{ noise2d(3903, -1723, 7411) };
+	constexpr float expected{ 0.989124f };
+	UASSERT(std::fabs(actual - expected) <= 0.00001);
 }
 
 void TestNoise::testNoise3dPoint()
@@ -87,7 +126,7 @@ void TestNoise::testNoise3dPoint()
 	for (u32 z = 0; z != 10; z++)
 	for (u32 y = 0; y != 10; y++)
 	for (u32 x = 0; x != 10; x++, i++) {
-		float actual   = NoisePerlin3D(&np_normal, x, y, z, 1337);
+		float actual   = NoiseFractal3D(&np_normal, x, y, z, 1337);
 		float expected = expected_3d_results[i];
 		UASSERT(std::fabs(actual - expected) <= 0.00001);
 	}
@@ -97,7 +136,7 @@ void TestNoise::testNoise3dBulk()
 {
 	NoiseParams np_normal(20, 40, v3f(50, 50, 50), 9, 5, 0.6, 2.0);
 	Noise noise_normal_3d(&np_normal, 1337, 10, 10, 10);
-	float *noisevals = noise_normal_3d.perlinMap3D(0, 0, 0, NULL);
+	float *noisevals = noise_normal_3d.noiseMap3D(0, 0, 0, NULL);
 
 	for (u32 i = 0; i != 10 * 10 * 10; i++) {
 		float actual   = noisevals[i];
@@ -113,7 +152,7 @@ void TestNoise::testNoiseInvalidParams()
 	try {
 		NoiseParams np_highmem(4, 70, v3f(1, 1, 1), 5, 60, 0.7, 10.0);
 		Noise noise_highmem_3d(&np_highmem, 1337, 200, 200, 200);
-		noise_highmem_3d.perlinMap3D(0, 0, 0, NULL);
+		noise_highmem_3d.noiseMap3D(0, 0, 0, NULL);
 	} catch (InvalidNoiseParamsException &) {
 		exception_thrown = true;
 	}

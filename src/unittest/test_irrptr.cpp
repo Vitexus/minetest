@@ -1,26 +1,12 @@
-/*
-Minetest
-Copyright (C) 2018 numzero, Lobachevskiy Vitaliy <numzer0@yandex.ru>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2018 numzero, Lobachevskiy Vitaliy <numzer0@yandex.ru>
 
 #include "test.h"
 
 #include "exceptions.h"
 #include "irr_ptr.h"
+#include "IReferenceCounted.h"
 
 class TestIrrPtr : public TestBase
 {
@@ -91,12 +77,14 @@ void TestIrrPtr::testRefCounting()
 			obj->getReferenceCount());
 }
 
-#if defined(__clang__)
+#if defined(__clang__) || defined(__GNUC__)
 	#pragma GCC diagnostic push
 	#if __clang_major__ >= 7
 		#pragma GCC diagnostic ignored "-Wself-assign-overloaded"
 	#endif
-	#pragma GCC diagnostic ignored "-Wself-move"
+	#if defined(__clang__) || __GNUC__ >= 13
+		#pragma GCC diagnostic ignored "-Wself-move"
+	#endif
 #endif
 
 void TestIrrPtr::testSelfAssignment()
@@ -138,6 +126,6 @@ void TestIrrPtr::testNullHandling()
 	UASSERT(!p3);
 }
 
-#if defined(__clang__)
+#if defined(__clang__) || defined(__GNUC__)
 	#pragma GCC diagnostic pop
 #endif

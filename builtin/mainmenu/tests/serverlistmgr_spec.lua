@@ -1,6 +1,6 @@
 _G.core = {}
-_G.vector = {metatable = {}}
 _G.unpack = table.unpack
+_G.check_cache_age = function() return false end
 _G.serverlistmgr = {}
 
 dofile("builtin/common/vector.lua")

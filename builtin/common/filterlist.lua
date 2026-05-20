@@ -1,27 +1,14 @@
---Minetest
---Copyright (C) 2013 sapier
---
---This program is free software; you can redistribute it and/or modify
---it under the terms of the GNU Lesser General Public License as published by
---the Free Software Foundation; either version 2.1 of the License, or
---(at your option) any later version.
---
---This program is distributed in the hope that it will be useful,
---but WITHOUT ANY WARRANTY; without even the implied warranty of
---MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
---GNU Lesser General Public License for more details.
---
---You should have received a copy of the GNU Lesser General Public License along
---with this program; if not, write to the Free Software Foundation, Inc.,
---51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+-- Luanti
+-- Copyright (C) 2013 sapier
+-- SPDX-License-Identifier: LGPL-2.1-or-later
 
 --------------------------------------------------------------------------------
 -- TODO improve doc                                                           --
 -- TODO code cleanup                                                          --
 -- Generic implementation of a filter/sortable list                           --
 -- Usage:                                                                     --
--- Filterlist needs to be initialized on creation. To achieve this you need to --
--- pass following functions:                                                  --
+-- Filterlist needs to be initialized on creation. To achieve this you need   --
+-- to pass following functions:                                               --
 -- raw_fct() (mandatory):                                                     --
 --     function returning a table containing the elements to be filtered      --
 -- compare_fct(element1,element2) (mandatory):                                --
@@ -31,7 +18,7 @@
 -- filter_fct(element,filtercriteria) (optional)                              --
 --     function returning true/false if filtercriteria met to element         --
 -- fetch_param (optional)                                                     --
---     parameter passed to raw_fct to aquire correct raw data                 --
+--     parameter passed to raw_fct to acquire correct raw data                --
 --                                                                            --
 --------------------------------------------------------------------------------
 filterlist = {}

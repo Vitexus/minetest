@@ -5,9 +5,12 @@ Note: The vector.*-functions must be able to accept old vectors that had no meta
 
 -- localize functions
 local setmetatable = setmetatable
+local math = math
 
--- vector.metatable is set by C++.
-local metatable = vector.metatable
+vector = {}
+
+local metatable = {}
+vector.metatable = metatable
 
 local xyz = {"x", "y", "z"}
 
@@ -79,7 +82,7 @@ metatable.__eq = vector.equals
 function vector.length(v)
 	return math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
 end
--- Note: we can not use __len because it is already used for primitive table length
+-- Note: we cannot use __len because it is already used for primitive table length
 
 function vector.normalize(v)
 	local len = vector.length(v)
@@ -95,18 +98,26 @@ function vector.floor(v)
 end
 
 function vector.round(v)
-	return fast_new(
-		math.round(v.x),
-		math.round(v.y),
-		math.round(v.z)
-	)
+	return vector.apply(v, math.round)
 end
 
-function vector.apply(v, func)
+function vector.ceil(v)
+	return vector.apply(v, math.ceil)
+end
+
+function vector.sign(v, tolerance)
+	return vector.apply(v, math.sign, tolerance)
+end
+
+function vector.abs(v)
+	return vector.apply(v, math.abs)
+end
+
+function vector.apply(v, func, ...)
 	return fast_new(
-		func(v.x),
-		func(v.y),
-		func(v.z)
+		func(v.x, ...),
+		func(v.y, ...),
+		func(v.z, ...)
 	)
 end
 
@@ -354,7 +365,7 @@ function vector.dir_to_rotation(forward, up)
 
 	-- Since vector.angle never returns a negative value or a value greater
 	-- than math.pi, rot.z has to be inverted sometimes.
-	-- To determine wether this is the case, we rotate the up vector back around
+	-- To determine whether this is the case, we rotate the up vector back around
 	-- the forward vector and check if it worked out.
 	local back = vector.rotate_around_axis(up, forward, -rot.z)
 
@@ -365,4 +376,49 @@ function vector.dir_to_rotation(forward, up)
 		rot.z = -rot.z
 	end
 	return rot
+end
+
+function vector.in_area(pos, min, max)
+	return (pos.x >= min.x) and (pos.x <= max.x) and
+		(pos.y >= min.y) and (pos.y <= max.y) and
+		(pos.z >= min.z) and (pos.z <= max.z)
+end
+
+function vector.random_direction()
+	-- Generate a random direction of unit length, via rejection sampling
+	local x, y, z, l2
+	repeat -- expected less than two attempts on average (volume sphere vs. cube)
+		x, y, z = math.random() * 2 - 1, math.random() * 2 - 1, math.random() * 2 - 1
+		l2 = x*x + y*y + z*z
+	until l2 <= 1 and l2 >= 1e-6
+	-- normalize
+	local l = math.sqrt(l2)
+	return fast_new(x/l, y/l, z/l)
+end
+
+function vector.random_in_area(min, max)
+	return fast_new(
+		math.random(min.x, max.x),
+		math.random(min.y, max.y),
+		math.random(min.z, max.z)
+	)
+end
+
+if rawget(_G, "core") and core.set_read_vector and core.set_push_vector then
+	local function read_vector(v)
+		return v.x, v.y, v.z
+	end
+	core.set_read_vector(read_vector)
+	core.set_read_vector = nil
+
+	if rawget(_G, "jit") then
+		-- This is necessary to prevent trace aborts.
+		local function push_vector(x, y, z)
+			return (fast_new(x, y, z))
+		end
+		core.set_push_vector(push_vector)
+	else
+		core.set_push_vector(fast_new)
+	end
+	core.set_push_vector = nil
 end

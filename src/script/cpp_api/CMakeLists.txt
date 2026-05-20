@@ -1,10 +1,14 @@
+file(GLOB common_SCRIPT_CPP_API_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/*.h")
+
 set(common_SCRIPT_CPP_API_SRCS
+	${common_SCRIPT_CPP_API_HDRS}
 	${CMAKE_CURRENT_SOURCE_DIR}/s_async.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/s_base.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/s_entity.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/s_env.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/s_inventory.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/s_item.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/s_mapgen.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/s_modchannels.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/s_node.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/s_nodemeta.cpp
@@ -15,6 +19,9 @@ set(common_SCRIPT_CPP_API_SRCS
 
 set(client_SCRIPT_CPP_API_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/s_client.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/s_client_common.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/s_mainmenu.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/s_pause_menu.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/s_sscsm.cpp
 	PARENT_SCOPE)
 

@@ -1,33 +1,20 @@
-/*
-Minetest
-Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #pragma once
 
-#include "itemdef.h"
 #include "irrlichttypes.h"
 #include "itemstackmetadata.h"
 #include <istream>
+#include <memory>
 #include <ostream>
 #include <string>
 #include <vector>
 #include <cassert>
 
+struct ItemDefinition;
+struct ItemImageDef;
 struct ToolCapabilities;
 
 struct ItemStack
@@ -48,8 +35,14 @@ struct ItemStack
 	// Returns the string used for inventory
 	std::string getItemString(bool include_meta = true) const;
 	// Returns the tooltip
-	std::string getDescription(IItemDefManager *itemdef) const;
-	std::string getShortDescription(IItemDefManager *itemdef) const;
+	std::string getDescription(const IItemDefManager *itemdef) const;
+	std::string getShortDescription(const IItemDefManager *itemdef) const;
+
+	ItemImageDef getInventoryImage(const IItemDefManager *itemdef) const;
+	ItemImageDef getInventoryOverlay(const IItemDefManager *itemdef) const;
+	ItemImageDef getWieldImage(const IItemDefManager *itemdef) const;
+	ItemImageDef getWieldOverlay(const IItemDefManager *itemdef) const;
+	v3f getWieldScale(const IItemDefManager *itemdef) const;
 
 	/*
 		Quantity methods
@@ -82,13 +75,10 @@ struct ItemStack
 	}
 
 	// Maximum size of a stack
-	u16 getStackMax(IItemDefManager *itemdef) const
-	{
-		return itemdef->get(name).stack_max;
-	}
+	u16 getStackMax(const IItemDefManager *itemdef) const;
 
 	// Number of items that can be added to this stack
-	u16 freeSpace(IItemDefManager *itemdef) const
+	u16 freeSpace(const IItemDefManager *itemdef) const
 	{
 		u16 max = getStackMax(itemdef);
 		if (count >= max)
@@ -97,51 +87,24 @@ struct ItemStack
 	}
 
 	// Returns false if item is not known and cannot be used
-	bool isKnown(IItemDefManager *itemdef) const
-	{
-		return itemdef->isKnown(name);
-	}
+	bool isKnown(const IItemDefManager *itemdef) const;
 
 	// Returns a pointer to the item definition struct,
 	// or a fallback one (name="unknown") if the item is unknown.
-	const ItemDefinition& getDefinition(
-			IItemDefManager *itemdef) const
-	{
-		return itemdef->get(name);
-	}
+	const ItemDefinition &getDefinition(
+			const IItemDefManager *itemdef) const;
 
 	// Get tool digging properties, or those of the hand if not a tool
-	const ToolCapabilities& getToolCapabilities(
-			IItemDefManager *itemdef) const
-	{
-		const ToolCapabilities *item_cap =
-			itemdef->get(name).tool_capabilities;
+	// If not hand assumes default hand ""
+	const ToolCapabilities &getToolCapabilities(
+			const IItemDefManager *itemdef, const ItemStack *hand = nullptr) const;
 
-		if (item_cap == NULL)
-			// Fall back to the hand's tool capabilities
-			item_cap = itemdef->get("").tool_capabilities;
-
-		assert(item_cap != NULL);
-		return metadata.getToolCapabilities(*item_cap); // Check for override
-	}
+	const std::optional<WearBarParams> &getWearBarParams(
+			const IItemDefManager *itemdef) const;
 
 	// Wear out (only tools)
 	// Returns true if the item is (was) a tool
-	bool addWear(s32 amount, IItemDefManager *itemdef)
-	{
-		if(getDefinition(itemdef).type == ITEM_TOOL)
-		{
-			if(amount > 65535 - wear)
-				clear();
-			else if(amount < -wear)
-				wear = 0;
-			else
-				wear += amount;
-			return true;
-		}
-
-		return false;
-	}
+	bool addWear(s32 amount, const IItemDefManager *itemdef);
 
 	// If possible, adds newitem to this item.
 	// If cannot be added at all, returns the item back.
@@ -155,6 +118,10 @@ struct ItemStack
 	bool itemFits(ItemStack newitem,
 			ItemStack *restitem,  // may be NULL
 			IItemDefManager *itemdef) const;
+
+	// Checks if another itemstack would stack with this one.
+	// Does not check if the item actually fits in the stack.
+	bool stacksWith(const ItemStack &other) const;
 
 	// Takes some items.
 	// If there are not enough, takes as many as it can.
@@ -258,7 +225,7 @@ public:
 	// If not as many items exist as requested, removes as
 	// many as possible.
 	// Returns the items that were actually removed.
-	ItemStack removeItem(const ItemStack &item);
+	ItemStack removeItem(const ItemStack &item, bool match_meta);
 
 	// Takes some items from a slot.
 	// If there are not enough, takes as many as it can.
@@ -267,8 +234,8 @@ public:
 
 	// Move an item to a different list (or a different stack in the same list)
 	// count is the maximum number of items to move (0 for everything)
-	// returns number of moved items
-	u32 moveItem(u32 i, InventoryList *dest, u32 dest_i,
+	// returns the moved stack
+	ItemStack moveItem(u32 i, InventoryList *dest, u32 dest_i,
 		u32 count = 0, bool swap_if_needed = true, bool *did_swap = NULL);
 
 	// like moveItem, but without a fixed destination index
@@ -278,6 +245,24 @@ public:
 	inline bool checkModified() const { return m_dirty; }
 	inline void setModified(bool dirty = true) { m_dirty = dirty; }
 
+	// Problem: C++ keeps references to InventoryList and ItemStack indices
+	// until a better solution is found, this serves as a guard to prevent side-effects
+	struct ResizeUnlocker {
+		void operator()(InventoryList *invlist)
+		{
+			invlist->m_resize_locks -= 1;
+		}
+	};
+	using ResizeLocked = std::unique_ptr<InventoryList, ResizeUnlocker>;
+
+	void checkResizeLock();
+
+	inline ResizeLocked resizeLock()
+	{
+		m_resize_locks += 1;
+		return ResizeLocked(this);
+	}
+
 private:
 	std::vector<ItemStack> m_items;
 	std::string m_name;
@@ -285,6 +270,7 @@ private:
 	u32 m_width = 0;
 	IItemDefManager *m_itemdef;
 	bool m_dirty = true;
+	int m_resize_locks = 0; // Lua callback sanity
 };
 
 class Inventory

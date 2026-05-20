@@ -1,52 +1,55 @@
-/*
-Minetest
-Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #pragma once
 
 #include "player.h"
-#include "environment.h"
 #include "constants.h"
-#include "settings.h"
 #include "lighting.h"
-#include <list>
+#include <string>
 
 class Client;
+class ClientActiveObject;
 class Environment;
 class GenericCAO;
-class ClientActiveObject;
-class ClientEnvironment;
-class IGameDef;
-struct collisionMoveResult;
+class Map;
+struct CollisionInfo;
+struct CollisionMoveResult;
 
-enum LocalPlayerAnimations
+enum class LocalPlayerAnimation
 {
 	NO_ANIM,
 	WALK_ANIM,
 	DIG_ANIM,
-	WD_ANIM
-}; // no local animation, walking, digging, both
+	WD_ANIM // walking + digging
+};
+
+struct PlayerSettings
+{
+	bool free_move = false;
+	bool pitch_move = false;
+	bool fast_move = false;
+	bool continuous_forward = false;
+	bool always_fly_fast = false;
+	bool aux1_descends = false;
+	bool noclip = false;
+	bool autojump = false;
+
+	void readGlobalSettings();
+	void registerSettingsCallback();
+	void deregisterSettingsCallback();
+
+private:
+	static void settingsChangedCallback(const std::string &name, void *data);
+};
 
 class LocalPlayer : public Player
 {
 public:
-	LocalPlayer(Client *client, const char *name);
-	virtual ~LocalPlayer() = default;
+
+	LocalPlayer(Client *client, const std::string &name);
+	virtual ~LocalPlayer();
 
 	// Initialize hp to 0, so that no hearts will be shown if server
 	// doesn't support health points
@@ -62,19 +65,10 @@ public:
 	bool swimming_vertical = false;
 	bool swimming_pitch = false;
 
-	float physics_override_speed = 1.0f;
-	float physics_override_jump = 1.0f;
-	float physics_override_gravity = 1.0f;
-	bool physics_override_sneak = true;
-	bool physics_override_sneak_glitch = false;
-	// Temporary option for old move code
-	bool physics_override_new_move = true;
+	f32 gravity = 0; // total downwards acceleration
 
-	void move(f32 dtime, Environment *env, f32 pos_max_d);
-	void move(f32 dtime, Environment *env, f32 pos_max_d,
-			std::vector<CollisionInfo> *collision_info);
-	// Temporary option for old move code
-	void old_move(f32 dtime, Environment *env, f32 pos_max_d,
+	void move(f32 dtime, Environment *env);
+	void move(f32 dtime, Environment *env,
 			std::vector<CollisionInfo> *collision_info);
 
 	void applyControl(float dtime, Environment *env);
@@ -90,16 +84,21 @@ public:
 	u32 last_keyPressed = 0;
 	u8 last_camera_fov = 0;
 	u8 last_wanted_range = 0;
+	bool last_camera_inverted = false;
+	f32 last_movement_speed = 0.0f;
+	f32 last_movement_dir = 0.0f;
 
 	float camera_impact = 0.0f;
 
 	bool makes_footstep_sound = true;
 
-	int last_animation = NO_ANIM;
+	LocalPlayerAnimation last_animation = LocalPlayerAnimation::NO_ANIM;
 	float last_animation_speed = 0.0f;
 
 	std::string hotbar_image = "";
 	std::string hotbar_selected_image = "";
+	/// Temporary player inventory formspec. Empty value = feature inactive.
+	std::string inventory_formspec_override;
 
 	video::SColor light_color = video::SColor(255, 255, 255, 255);
 
@@ -116,8 +115,6 @@ public:
 		m_cao = toset;
 	}
 
-	u32 maxHudId() const { return hud.size(); }
-
 	u16 getBreath() const { return m_breath; }
 	void setBreath(u16 breath) { m_breath = breath; }
 
@@ -132,6 +129,11 @@ public:
 	inline void setPosition(const v3f &position)
 	{
 		m_position = position;
+		m_sneak_node_exists = false;
+	}
+	inline void addPosition(const v3f &added_pos)
+	{
+		m_position += added_pos;
 		m_sneak_node_exists = false;
 	}
 
@@ -156,20 +158,23 @@ public:
 
 	inline void addVelocity(const v3f &vel)
 	{
-		added_velocity += vel;
+		m_added_velocity += vel;
 	}
 
 	inline Lighting& getLighting() { return m_lighting; }
+
+	inline PlayerSettings &getPlayerSettings() { return m_player_settings; }
 
 private:
 	void accelerate(const v3f &target_speed, const f32 max_increase_H,
 		const f32 max_increase_V, const bool use_pitch);
 	bool updateSneakNode(Map *map, const v3f &position, const v3f &sneak_max);
 	float getSlipFactor(Environment *env, const v3f &speedH);
+	void old_move(f32 dtime, Environment *env,
+			std::vector<CollisionInfo> *collision_info);
 	void handleAutojump(f32 dtime, Environment *env,
-		const collisionMoveResult &result,
-		const v3f &position_before_move, const v3f &speed_before_move,
-		f32 pos_max_d);
+		const CollisionMoveResult &result,
+		v3f position_before_move, v3f speed_before_move);
 
 	v3f m_position;
 	v3s16 m_standing_node;
@@ -196,10 +201,10 @@ private:
 
 	bool m_can_jump = false;
 	bool m_disable_jump = false;
+	bool m_disable_descend = false;
 	u16 m_breath = PLAYER_MAX_BREATH_DEFAULT;
 	f32 m_yaw = 0.0f;
 	f32 m_pitch = 0.0f;
-	bool camera_barely_in_ceiling = false;
 	aabb3f m_collisionbox = aabb3f(-BS * 0.30f, 0.0f, -BS * 0.30f, BS * 0.30f,
 		BS * 1.75f, BS * 0.30f);
 	float m_eye_height = 1.625f;
@@ -207,10 +212,11 @@ private:
 	bool m_autojump = false;
 	float m_autojump_time = 0.0f;
 
-	v3f added_velocity = v3f(0.0f); // cleared on each move()
-	// TODO: Rename to adhere to convention: added_velocity --> m_added_velocity
+	v3f m_added_velocity = v3f(0.0f); // in BS-space; cleared on each move()
 
 	GenericCAO *m_cao = nullptr;
 	Client *m_client;
+
+	PlayerSettings m_player_settings;
 	Lighting m_lighting;
 };

@@ -1,32 +1,15 @@
-/*
-Minetest
-Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "inventory.h"
-#include "serialization.h"
-#include "debug.h"
 #include <algorithm>
 #include <sstream>
 #include "log.h"
-#include "itemdef.h"
 #include "util/strfnd.h"
 #include "content_mapnode.h" // For loading legacy MaterialItems
 #include "nameidmapping.h" // For loading legacy MaterialItems
+#include "itemdef.h"
 #include "util/serialize.h"
 #include "util/string.h"
 
@@ -250,7 +233,7 @@ std::string ItemStack::getItemString(bool include_meta) const
 	return os.str();
 }
 
-std::string ItemStack::getDescription(IItemDefManager *itemdef) const
+std::string ItemStack::getDescription(const IItemDefManager *itemdef) const
 {
 	std::string desc = metadata.getString("description");
 	if (desc.empty())
@@ -258,7 +241,7 @@ std::string ItemStack::getDescription(IItemDefManager *itemdef) const
 	return desc.empty() ? name : desc;
 }
 
-std::string ItemStack::getShortDescription(IItemDefManager *itemdef) const
+std::string ItemStack::getShortDescription(const IItemDefManager *itemdef) const
 {
 	std::string desc = metadata.getString("short_description");
 	if (desc.empty())
@@ -272,6 +255,120 @@ std::string ItemStack::getShortDescription(IItemDefManager *itemdef) const
 	return desc;
 }
 
+ItemImageDef ItemStack::getInventoryImage(const IItemDefManager *itemdef) const
+{
+	ItemImageDef image = getDefinition(itemdef).inventory_image;
+	std::string meta_image = metadata.getString("inventory_image");
+	if (!meta_image.empty())
+		image = meta_image;
+
+	return image;
+}
+
+ItemImageDef ItemStack::getInventoryOverlay(const IItemDefManager *itemdef) const
+{
+	ItemImageDef image = getDefinition(itemdef).inventory_overlay;
+	std::string meta_image = metadata.getString("inventory_overlay");
+	if (!meta_image.empty())
+		image = meta_image;
+
+	return image;
+}
+
+ItemImageDef ItemStack::getWieldImage(const IItemDefManager *itemdef) const
+{
+	ItemImageDef image = getDefinition(itemdef).wield_image;
+	std::string meta_image = metadata.getString("wield_image");
+	if (!meta_image.empty())
+		image = meta_image;
+
+	return image;
+}
+
+ItemImageDef ItemStack::getWieldOverlay(const IItemDefManager *itemdef) const
+{
+	ItemImageDef image = getDefinition(itemdef).wield_overlay;
+	std::string meta_image = metadata.getString("wield_overlay");
+	if (!meta_image.empty())
+		image = meta_image;
+
+	return image;
+}
+
+v3f ItemStack::getWieldScale(const IItemDefManager *itemdef) const
+{
+	std::string scale = metadata.getString("wield_scale");
+
+	return str_to_v3f(scale).value_or(getDefinition(itemdef).wield_scale);
+}
+
+u16 ItemStack::getStackMax(const IItemDefManager *itemdef) const
+{
+	return itemdef->get(name).stack_max;
+}
+
+bool ItemStack::isKnown(const IItemDefManager *itemdef) const
+{
+	return itemdef->isKnown(name);
+}
+
+const ItemDefinition &ItemStack::getDefinition(
+		const IItemDefManager *itemdef) const
+{
+	return itemdef->get(name);
+}
+
+const ToolCapabilities &ItemStack::getToolCapabilities(
+		const IItemDefManager *itemdef, const ItemStack *hand) const
+{
+	// Check for override
+	auto &meta_item_cap = metadata.getToolCapabilitiesOverride();
+	if (meta_item_cap.has_value())
+		return meta_item_cap.value();
+
+	const ToolCapabilities *item_cap = itemdef->get(name).tool_capabilities;
+	if (item_cap)
+		return *item_cap;
+
+	// Fall back to the hand's tool capabilities
+	if (hand) {
+		auto &hand_meta_item_cap = hand->metadata.getToolCapabilitiesOverride();
+		if (hand_meta_item_cap.has_value())
+			return hand_meta_item_cap.value();
+
+		item_cap = itemdef->get(hand->name).tool_capabilities;
+		if (item_cap)
+			return *item_cap;
+	}
+
+	item_cap = itemdef->get("").tool_capabilities;
+	assert(item_cap);
+	return *item_cap;
+}
+
+const std::optional<WearBarParams> &ItemStack::getWearBarParams(
+		const IItemDefManager *itemdef) const
+{
+	auto &meta_override = metadata.getWearBarParamOverride();
+	if (meta_override.has_value())
+		return meta_override;
+	return itemdef->get(name).wear_bar_params;
+}
+
+bool ItemStack::addWear(s32 amount, const IItemDefManager *itemdef)
+{
+	if (getDefinition(itemdef).type == ITEM_TOOL) {
+		if(amount > 65535 - wear)
+			clear();
+		else if(amount < -wear)
+			wear = 0;
+		else
+			wear += amount;
+		return true;
+	}
+
+	return false;
+}
 
 ItemStack ItemStack::addItem(ItemStack newitem, IItemDefManager *itemdef)
 {
@@ -349,6 +446,13 @@ bool ItemStack::itemFits(ItemStack newitem,
 	return newitem.empty();
 }
 
+bool ItemStack::stacksWith(const ItemStack &other) const
+{
+	return (this->name == other.name &&
+			this->wear == other.wear &&
+			this->metadata == other.metadata);
+}
+
 ItemStack ItemStack::takeItem(u32 takecount)
 {
 	if(takecount == 0 || count == 0)
@@ -407,6 +511,9 @@ void InventoryList::setSize(u32 newsize)
 {
 	if (newsize == m_items.size())
 		return;
+
+	if (newsize < m_items.size())
+		checkResizeLock();
 
 	m_items.resize(newsize);
 	m_size = newsize;
@@ -505,6 +612,8 @@ void InventoryList::deSerialize(std::istream &is)
 
 InventoryList & InventoryList::operator = (const InventoryList &other)
 {
+	checkResizeLock();
+
 	m_items = other.m_items;
 	m_size = other.m_size;
 	m_width = other.m_width;
@@ -546,8 +655,10 @@ ItemStack InventoryList::changeItem(u32 i, const ItemStack &newitem)
 		return newitem;
 
 	ItemStack olditem = m_items[i];
-	m_items[i] = newitem;
-	setModified();
+	if (olditem != newitem) {
+		m_items[i] = newitem;
+		setModified();
+	}
 	return olditem;
 }
 
@@ -653,11 +764,11 @@ bool InventoryList::containsItem(const ItemStack &item, bool match_meta) const
 	return false;
 }
 
-ItemStack InventoryList::removeItem(const ItemStack &item)
+ItemStack InventoryList::removeItem(const ItemStack &item, bool match_meta)
 {
 	ItemStack removed;
 	for (auto i = m_items.rbegin(); i != m_items.rend(); ++i) {
-		if (i->name == item.name) {
+		if (i->name == item.name && (!match_meta || i->metadata == item.metadata)) {
 			u32 still_to_remove = item.count - removed.count;
 			ItemStack leftover = removed.addItem(i->takeItem(still_to_remove),
 					m_itemdef);
@@ -701,55 +812,63 @@ void InventoryList::moveItemSomewhere(u32 i, InventoryList *dest, u32 count)
 
 	if (!leftover.empty()) {
 		// Add the remaining part back to the source item
-		addItem(i, leftover);
+		// do NOT use addItem to allow oversized stacks!
+		leftover.add(getItem(i).count);
+		changeItem(i, leftover);
 	}
 }
 
-u32 InventoryList::moveItem(u32 i, InventoryList *dest, u32 dest_i,
+ItemStack InventoryList::moveItem(u32 i, InventoryList *dest, u32 dest_i,
 		u32 count, bool swap_if_needed, bool *did_swap)
 {
+	ItemStack moved;
 	if (this == dest && i == dest_i)
-		return count;
+		return moved;
 
 	// Take item from source list
-	ItemStack item1;
 	if (count == 0)
-		item1 = changeItem(i, ItemStack());
+		moved = changeItem(i, ItemStack());
 	else
-		item1 = takeItem(i, count);
-
-	if (item1.empty())
-		return 0;
+		moved = takeItem(i, count);
 
 	// Try to add the item to destination list
-	u32 oldcount = item1.count;
-	item1 = dest->addItem(dest_i, item1);
+	ItemStack leftover = dest->addItem(dest_i, moved);
 
 	// If something is returned, the item was not fully added
-	if (!item1.empty()) {
-		// If olditem is returned, nothing was added.
-		bool nothing_added = (item1.count == oldcount);
+	if (!leftover.empty()) {
+		// Keep track of how many we actually moved
+		moved.remove(leftover.count);
 
-		// If something else is returned, part of the item was left unadded.
-		// Add the other part back to the source item
-		addItem(i, item1);
+		// Add any leftover stack back to the source stack.
+		leftover.add(getItem(i).count); // leftover + source count
+		changeItem(i, leftover); // do NOT use addItem to allow oversized stacks!
+		leftover.clear();
 
-		// If olditem is returned, nothing was added.
-		// Swap the items
-		if (nothing_added && swap_if_needed) {
+		// Swap if no items could be moved
+		if (moved.empty() && swap_if_needed) {
 			// Tell that we swapped
 			if (did_swap != NULL) {
 				*did_swap = true;
 			}
 			// Take item from source list
-			item1 = changeItem(i, ItemStack());
+			moved = changeItem(i, ItemStack());
 			// Adding was not possible, swap the items.
-			ItemStack item2 = dest->changeItem(dest_i, item1);
+			ItemStack item2 = dest->changeItem(dest_i, moved);
 			// Put item from destination list to the source list
 			changeItem(i, item2);
 		}
 	}
-	return (oldcount - item1.count);
+
+	return moved;
+}
+
+void InventoryList::checkResizeLock()
+{
+	if (m_resize_locks == 0)
+		return; // OK
+
+	throw BaseException("InventoryList '" + m_name
+			+ "' is currently in use and cannot be deleted or resized.");
 }
 
 /*
@@ -763,6 +882,12 @@ Inventory::~Inventory()
 
 void Inventory::clear()
 {
+	for (auto &m_list : m_lists) {
+		// Placing this check within the destructor would be a logical solution
+		// but that's generally a bad idea, thus manual calls beforehand:
+		m_list->checkResizeLock();
+	}
+
 	for (auto &m_list : m_lists) {
 		delete m_list;
 	}
@@ -901,13 +1026,16 @@ InventoryList * Inventory::addList(const std::string &name, u32 size)
 {
 	setModified();
 
-	// Remove existing lists
+	// Reset existing lists instead of re-creating if possible.
+	// InventoryAction::apply() largely caches InventoryList pointers which must not be
+	// invalidated by Lua API calls (e.g. InvRef:set_list), hence do resize & clear which
+	// also include the neccessary resize lock checks.
 	s32 i = getListIndex(name);
 	if (i != -1) {
-		delete m_lists[i];
-		m_lists[i] = new InventoryList(name, size, m_itemdef);
-		m_lists[i]->setModified();
-		return m_lists[i];
+		InventoryList *list = m_lists[i];
+		list->setSize(size);
+		list->clearItems();
+		return list;
 	}
 
 	//don't create list with invalid name
@@ -933,6 +1061,8 @@ bool Inventory::deleteList(const std::string &name)
 	s32 i = getListIndex(name);
 	if(i == -1)
 		return false;
+
+	m_lists[i]->checkResizeLock();
 
 	setModified();
 	delete m_lists[i];

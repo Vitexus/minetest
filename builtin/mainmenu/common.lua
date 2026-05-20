@@ -1,22 +1,28 @@
---Minetest
---Copyright (C) 2014 sapier
---
---This program is free software; you can redistribute it and/or modify
---it under the terms of the GNU Lesser General Public License as published by
---the Free Software Foundation; either version 2.1 of the License, or
---(at your option) any later version.
---
---This program is distributed in the hope that it will be useful,
---but WITHOUT ANY WARRANTY; without even the implied warranty of
---MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
---GNU Lesser General Public License for more details.
---
---You should have received a copy of the GNU Lesser General Public License along
---with this program; if not, write to the Free Software Foundation, Inc.,
---51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+-- Luanti
+-- Copyright (C) 2014 sapier
+-- SPDX-License-Identifier: LGPL-2.1-or-later
 
 -- Global menu data
 menudata = {}
+
+-- located in user cache path, for remembering this like e.g. last update check
+cache_settings = Settings(core.get_cache_path() .. DIR_DELIM .. "common.conf")
+
+--- Checks if the given key contains a timestamp less than a certain age.
+--- Pair this with a call to `cache_settings:set(key, tostring(os.time()))`
+--- after successfully refreshing the cache.
+--- @param key Name of entry in cache_settings
+--- @param max_age Age to check against, in seconds
+--- @return true if the max age is not reached
+function check_cache_age(key, max_age)
+	local time_now = os.time()
+	local time_checked = tonumber(cache_settings:get(key)) or 0
+	return time_now - time_checked < max_age
+end
+
+function core.on_before_close()
+	cache_settings:write()
+end
 
 -- Local cached values
 local min_supp_proto, max_supp_proto
@@ -26,6 +32,16 @@ function common_update_cached_supp_proto()
 	max_supp_proto = core.get_max_supp_proto()
 end
 common_update_cached_supp_proto()
+
+-- Other global functions
+
+function core.sound_stop(handle, ...)
+	return handle:stop(...)
+end
+
+function os.tmpname()
+	error('do not use') -- instead: core.get_temp_path()
+end
 
 -- Menu helper functions
 
@@ -43,6 +59,27 @@ local function configure_selected_world_params(idx)
 	if worldconfig.enable_damage then
 		core.settings:set("enable_damage", worldconfig.enable_damage)
 	end
+end
+
+-- retrieved from https://wondernetwork.com/pings with (hopefully) representative cities
+-- Amsterdam, Auckland, Brasilia, Denver, Lagos, Singapore
+local latency_matrix = {
+	["AF"] = { ["AS"]=258, ["EU"]=100, ["NA"]=218, ["OC"]=432, ["SA"]=308 },
+	["AS"] = { ["EU"]=168, ["NA"]=215, ["OC"]=125, ["SA"]=366 },
+	["EU"] = { ["NA"]=120, ["OC"]=298, ["SA"]=221 },
+	["NA"] = { ["OC"]=202, ["SA"]=168 },
+	["OC"] = { ["SA"]=411 },
+	["SA"] = {}
+}
+function estimate_continent_latency(own, spec)
+	local there = spec.geo_continent
+	if not own or not there then
+		return nil
+	end
+	if own == there then
+		return 0
+	end
+	return latency_matrix[there][own] or latency_matrix[own][there]
 end
 
 function render_serverlist_row(spec)
@@ -119,24 +156,13 @@ function render_serverlist_row(spec)
 
 	return table.concat(details, ",")
 end
----------------------------------------------------------------------------------
-os.tmpname = function()
-	error('do not use') -- instead use core.get_temp_path()
-end
---------------------------------------------------------------------------------
 
-function menu_render_worldlist(show_gameid)
+function menu_render_worldlist()
 	local retval = {}
 	local current_worldlist = menudata.worldlist:get_list()
 
-	local row
 	for i, v in ipairs(current_worldlist) do
-		row = v.name
-		if show_gameid == nil or show_gameid == true then
-			row = row .. " [" .. v.gameid .. "]"
-		end
-		retval[#retval+1] = core.formspec_escape(row)
-
+		retval[#retval+1] = core.formspec_escape(v.name)
 	end
 
 	return table.concat(retval, ",")
@@ -241,4 +267,12 @@ function menu_worldmt_legacy(selected)
 			menu_worldmt(selected, mode_name, core.settings:get(mode_name))
 		end
 	end
+end
+
+function confirmation_formspec(message, confirm_id, confirm_label, cancel_id, cancel_label)
+	return "size[10,2.5,true]" ..
+			"label[0.5,0.5;" .. message .. "]" ..
+			"style[" .. confirm_id .. ";bgcolor=red]" ..
+			"button[0.5,1.5;2.5,0.5;" .. confirm_id .. ";" .. confirm_label .. "]" ..
+			"button[7.0,1.5;2.5,0.5;" .. cancel_id .. ";" .. cancel_label .. "]"
 end

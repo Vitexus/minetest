@@ -1,25 +1,11 @@
-/*
-Minetest
-Copyright (C) 2018 nerzhul, Loic BLOT <loic.blot@unix-experience.fr>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2018 nerzhul, Loic BLOT <loic.blot@unix-experience.fr>
 
 #include "test.h"
 
 #include "client/gameui.h"
+#include "gui/statusTextHelper.h"
 
 class TestGameUI : public TestBase
 {
@@ -30,7 +16,6 @@ public:
 	void runTests(IGameDef *gamedef);
 
 	void testInit();
-	void testFlagSetters();
 	void testInfoText();
 	void testStatusText();
 };
@@ -40,7 +25,6 @@ static TestGameUI g_test_instance;
 void TestGameUI::runTests(IGameDef *gamedef)
 {
 	TEST(testInit);
-	TEST(testFlagSetters);
 	TEST(testInfoText);
 	TEST(testStatusText);
 }
@@ -51,37 +35,32 @@ void TestGameUI::testInit()
 	// Ensure flags on GameUI init
 	UASSERT(gui.getFlags().show_chat)
 	UASSERT(gui.getFlags().show_hud)
-	UASSERT(!gui.getFlags().show_minimap)
 	UASSERT(!gui.getFlags().show_profiler_graph)
 
 	// And after the initFlags init stage
 	gui.initFlags();
 	UASSERT(gui.getFlags().show_chat)
 	UASSERT(gui.getFlags().show_hud)
-	UASSERT(!gui.getFlags().show_minimap)
 	UASSERT(!gui.getFlags().show_profiler_graph)
 
 	// @TODO verify if we can create non UI nulldevice to test this function
 	// gui.init();
 }
 
-void TestGameUI::testFlagSetters()
-{
-	GameUI gui{};
-	gui.showMinimap(true);
-	UASSERT(gui.getFlags().show_minimap);
-
-	gui.showMinimap(false);
-	UASSERT(!gui.getFlags().show_minimap);
-}
-
 void TestGameUI::testStatusText()
 {
-	GameUI gui{};
-	gui.showStatusText(L"test status");
+	StatusTextHelper status_text(nullptr);
 
-	UASSERT(gui.m_statustext_time == 0.0f);
-	UASSERT(gui.m_statustext == L"test status");
+	UASSERT(status_text.getStatusText().empty());
+	UASSERT(status_text.getStatusTextTime() == 0.0f);
+
+	status_text.showStatusText(L"test status");
+	UASSERT(status_text.getStatusText() == L"test status");
+	UASSERT(status_text.getStatusTextTime() == 0.0f);
+
+	status_text.clearStatusText();
+	UASSERT(status_text.getStatusText().empty());
+	UASSERT(status_text.getStatusTextTime() == 0.0f);
 }
 
 void TestGameUI::testInfoText()

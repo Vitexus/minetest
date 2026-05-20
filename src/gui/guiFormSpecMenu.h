@@ -1,46 +1,33 @@
-/*
-Minetest
-Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #pragma once
 
+#include <optional>
 #include <utility>
 #include <stack>
 #include <unordered_set>
 
-#include "irrlichttypes_extrabloated.h"
+#include "irrlichttypes_bloated.h"
 #include "irr_ptr.h"
+#include "inventory.h"
 #include "inventorymanager.h"
 #include "modalMenu.h"
 #include "guiInventoryList.h"
 #include "guiScrollBar.h"
 #include "guiTable.h"
-#include "network/networkprotocol.h"
-#include "client/joystick_controller.h"
 #include "util/string.h"
-#include "util/enriched_string.h"
 #include "StyleSpec.h"
+#include <ICursorControl.h> // gui::ECURSOR_ICON
+#include <IGUIStaticText.h>
 
 class InventoryManager;
 class ISimpleTextureSource;
 class Client;
 class GUIScrollContainer;
 class ISoundManager;
+class JoystickController;
 
 enum FormspecFieldType {
 	f_Button,
@@ -59,16 +46,29 @@ enum FormspecFieldType {
 enum FormspecQuitMode {
 	quit_mode_no,
 	quit_mode_accept,
-	quit_mode_cancel
+	quit_mode_cancel,
+	quit_mode_try,
+};
+
+enum ButtonEventType : u8
+{
+	BET_LEFT,
+	BET_RIGHT,
+	BET_MIDDLE,
+	BET_WHEEL_UP,
+	BET_WHEEL_DOWN,
+	BET_UP,
+	BET_DOWN,
+	BET_MOVE,
+	BET_OTHER
 };
 
 struct TextDest
 {
 	virtual ~TextDest() = default;
 
-	// This is deprecated I guess? -celeron55
-	virtual void gotText(const std::wstring &text) {}
 	virtual void gotText(const StringMap &fields) = 0;
+	virtual void requestScreenshot() {}
 
 	std::string m_formname;
 };
@@ -121,22 +121,23 @@ class GUIFormSpecMenu : public GUIModalMenu
 		std::string fname;
 		std::wstring flabel;
 		std::wstring fdefault;
+		std::string url;
 		s32 fid;
 		bool send;
 		FormspecFieldType ftype;
 		bool is_exit;
 		// Draw priority for formspec version < 3
 		int priority;
-		core::rect<s32> rect;
 		gui::ECURSOR_ICON fcursor_icon;
 		std::string sound;
+		f32 aux_f32 = 0;
 	};
 
 	struct TooltipSpec
 	{
 		TooltipSpec() = default;
-		TooltipSpec(const std::wstring &a_tooltip, irr::video::SColor a_bgcolor,
-				irr::video::SColor a_color):
+		TooltipSpec(const std::wstring &a_tooltip, video::SColor a_bgcolor,
+				video::SColor a_color):
 			tooltip(translate_string(a_tooltip)),
 			bgcolor(a_bgcolor),
 			color(a_color)
@@ -144,8 +145,8 @@ class GUIFormSpecMenu : public GUIModalMenu
 		}
 
 		std::wstring tooltip;
-		irr::video::SColor bgcolor;
-		irr::video::SColor color;
+		video::SColor bgcolor;
+		video::SColor color;
 	};
 
 public:
@@ -201,9 +202,17 @@ public:
 		m_text_dst = text_dst;
 	}
 
-	void allowClose(bool value)
+	void defaultAllowClose(bool value)
 	{
+		// Also set m_allowclose here in order to have the correct value if
+		// escape is pressed before regenerateGui() is called.
+		m_default_allowclose = value;
 		m_allowclose = value;
+	}
+
+	void setDebugView(bool value)
+	{
+		m_show_debug = value;
 	}
 
 	void lockSize(bool lock,v2u32 basescreensize=v2u32(0,0))
@@ -227,7 +236,7 @@ public:
 
 	const GUIInventoryList::ItemSpec *getSelectedItem() const
 	{
-		return m_selected_item;
+		return m_selected_item.get();
 	}
 
 	u16 getSelectedAmount() const
@@ -248,34 +257,48 @@ public:
 	/*
 		Remove and re-add (or reposition) stuff
 	*/
-	void regenerateGui(v2u32 screensize);
+	void regenerateGui(v2u32 screensize) override;
 
 	GUIInventoryList::ItemSpec getItemAtPos(v2s32 p) const;
 	void drawSelectedItem();
-	void drawMenu();
+	void drawMenu() override;
 	void updateSelectedItem();
 	ItemStack verifySelectedItem();
 
+	s16 getNextInventoryRing(const InventoryLocation &inventoryloc, const std::string &listname);
+
 	void acceptInput(FormspecQuitMode quitmode=quit_mode_no);
-	bool preprocessEvent(const SEvent& event);
-	bool OnEvent(const SEvent& event);
-	bool doPause;
-	bool pausesGame() { return doPause; }
+	bool preprocessEvent(const SEvent& event) override;
+	bool OnEvent(const SEvent& event) override;
+
+	bool doPause = false;
+	bool pausesGame() override { return doPause; }
 
 	GUITable* getTable(const std::string &tablename);
 	std::vector<std::string>* getDropDownValues(const std::string &name);
 
+	// This will only return a meaningful value if called after drawMenu().
+	core::rect<s32> getAbsoluteRect();
+
 #ifdef __ANDROID__
-	bool getAndroidUIInput();
+	void getAndroidUIInput();
 #endif
 
+	// Returns the fixed formspec coordinate size for the given parameters.
+	static double getFixedImgsize(double screen_dpi, double gui_scaling);
+	// Returns the preferred non-fixed formspec coordinate size for the given parameters.
+	static double getImgsize(v2u32 avail_screensize, double screen_dpi, double gui_scaling);
+
 protected:
+	bool remapClickOutside(const SEvent &event) override;
+
 	v2s32 getBasePos() const
 	{
 			return padding + offset + AbsoluteRect.UpperLeftCorner;
 	}
-	std::wstring getLabelByID(s32 id);
-	std::string getNameByID(s32 id);
+
+	std::wstring getLabelByID(s32 id) override;
+	std::string getNameByID(s32 id) override;
 	const FieldSpec *getSpecByID(s32 id);
 	v2s32 getElementBasePos(const std::vector<std::string> *v_pos);
 	v2s32 getRealCoordinateBasePos(const std::vector<std::string> &v_pos);
@@ -314,6 +337,7 @@ protected:
 
 	std::vector<GUIInventoryList *> m_inventorylists;
 	std::vector<ListRingSpec> m_inventory_rings;
+	std::unordered_map<std::string, bool> field_enter_after_edit;
 	std::unordered_map<std::string, bool> field_close_on_enter;
 	std::unordered_map<std::string, bool> m_dropdown_index_event;
 	std::vector<FieldSpec> m_fields;
@@ -326,10 +350,17 @@ protected:
 	std::vector<gui::IGUIElement *> m_clickthrough_elements;
 	std::vector<std::pair<std::string, GUIScrollContainer *>> m_scroll_containers;
 
-	GUIInventoryList::ItemSpec *m_selected_item = nullptr;
+	std::unique_ptr<GUIInventoryList::ItemSpec> m_selected_item;
 	u16 m_selected_amount = 0;
 	bool m_selected_dragging = false;
 	ItemStack m_selected_swap;
+	ButtonEventType m_held_mouse_button = BET_OTHER;
+	bool m_shift_move_after_craft = false;
+
+	u16 m_left_drag_amount = 0;
+	ItemStack m_left_drag_stack;
+	std::vector<std::pair<GUIInventoryList::ItemSpec, ItemStack>> m_left_drag_stacks;
+	bool m_left_dragging = false;
 
 	gui::IGUIStaticText *m_tooltip_element = nullptr;
 
@@ -338,8 +369,7 @@ protected:
 	u64 m_hovered_time = 0;
 	s32 m_old_tooltip_id = -1;
 
-	bool m_auto_place = false;
-
+	bool m_default_allowclose = true;
 	bool m_allowclose = true;
 	bool m_lock = false;
 	v2u32 m_lockscreensize;
@@ -352,13 +382,15 @@ protected:
 	video::SColor m_default_tooltip_color;
 
 private:
-	IFormSource        *m_form_src;
-	TextDest           *m_text_dst;
-	std::string         m_last_formname;
-	u16                 m_formspec_version = 1;
-	std::string         m_focused_element = "";
-	JoystickController *m_joystick;
-	bool m_show_debug = false;
+	IFormSource               *m_form_src;
+	TextDest                  *m_text_dst;
+	std::string                m_last_formname;
+	u16                        m_formspec_version = 1;
+	std::optional<std::string> m_focused_element = std::nullopt;
+	JoystickController        *m_joystick;
+	bool                       m_show_debug = false;
+	bool                       m_show_focus = false;
+	gui::IGUIElement          *m_last_focused = nullptr;
 
 	struct parserData {
 		bool explicit_size;
@@ -390,43 +422,47 @@ private:
 
 		// used to restore table selection/scroll/treeview state
 		std::unordered_map<std::string, GUITable::DynamicData> table_dyndata;
+		std::string type;
 	};
+
+	static const std::unordered_map<std::string, std::function<void(GUIFormSpecMenu*, GUIFormSpecMenu::parserData *data, const std::string &description)>> element_parsers;
 
 	struct fs_key_pending {
 		bool key_up;
 		bool key_down;
 		bool key_enter;
-		bool key_escape;
 	};
 
 	fs_key_pending current_keys_pending;
 	std::string current_field_enter_pending = "";
 	std::vector<std::string> m_hovered_item_tooltips;
 
+	void removeAll();
+
 	void parseElement(parserData* data, const std::string &element);
 
 	void parseSize(parserData* data, const std::string &element);
 	void parseContainer(parserData* data, const std::string &element);
-	void parseContainerEnd(parserData* data);
+	void parseContainerEnd(parserData* data, const std::string &element);
 	void parseScrollContainer(parserData *data, const std::string &element);
-	void parseScrollContainerEnd(parserData *data);
+	void parseScrollContainerEnd(parserData *data, const std::string &element);
 	void parseList(parserData* data, const std::string &element);
 	void parseListRing(parserData* data, const std::string &element);
 	void parseCheckbox(parserData* data, const std::string &element);
 	void parseImage(parserData* data, const std::string &element);
 	void parseAnimatedImage(parserData *data, const std::string &element);
 	void parseItemImage(parserData* data, const std::string &element);
-	void parseButton(parserData* data, const std::string &element,
-			const std::string &typ);
+	void parseButton(parserData* data, const std::string &element);
 	void parseBackground(parserData* data, const std::string &element);
 	void parseTableOptions(parserData* data, const std::string &element);
 	void parseTableColumns(parserData* data, const std::string &element);
 	void parseTable(parserData* data, const std::string &element);
 	void parseTextList(parserData* data, const std::string &element);
 	void parseDropDown(parserData* data, const std::string &element);
+	void parseFieldEnterAfterEdit(parserData *data, const std::string &element);
 	void parseFieldCloseOnEnter(parserData *data, const std::string &element);
 	void parsePwdField(parserData* data, const std::string &element);
-	void parseField(parserData* data, const std::string &element, const std::string &type);
+	void parseField(parserData* data, const std::string &element);
 	void createTextField(parserData *data, FieldSpec &spec,
 		core::rect<s32> &rect, bool is_multiline);
 	void parseSimpleField(parserData* data,std::vector<std::string> &parts);
@@ -435,8 +471,7 @@ private:
 	void parseHyperText(parserData *data, const std::string &element);
 	void parseLabel(parserData* data, const std::string &element);
 	void parseVertLabel(parserData* data, const std::string &element);
-	void parseImageButton(parserData* data, const std::string &element,
-			const std::string &type);
+	void parseImageButton(parserData* data, const std::string &element);
 	void parseItemImageButton(parserData* data, const std::string &element);
 	void parseTabHeader(parserData* data, const std::string &element);
 	void parseBox(parserData* data, const std::string &element);
@@ -445,6 +480,7 @@ private:
 	void parseTooltip(parserData* data, const std::string &element);
 	bool parseVersionDirect(const std::string &data);
 	bool parseSizeDirect(parserData* data, const std::string &element);
+	void parseRealCoordinates(parserData* data, const std::string &element);
 	void parseScrollBar(parserData* data, const std::string &element);
 	void parseScrollBarOptions(parserData *data, const std::string &element);
 	bool parsePositionDirect(parserData *data, const std::string &element);
@@ -453,14 +489,24 @@ private:
 	void parseAnchor(parserData *data, const std::string &element);
 	bool parsePaddingDirect(parserData *data, const std::string &element);
 	void parsePadding(parserData *data, const std::string &element);
-	bool parseStyle(parserData *data, const std::string &element, bool style_type);
-	void parseSetFocus(const std::string &element);
+	void parseStyle(parserData *data, const std::string &element);
+	void parseSetFocus(parserData *, const std::string &element);
 	void parseModel(parserData *data, const std::string &element);
+	void parseAllowClose(parserData *data, const std::string &element);
+
+	bool parseMiddleRect(const std::string &value, core::rect<s32> *parsed_rect);
 
 	void tryClose();
+	void trySubmitClose();
 
-	void showTooltip(const std::wstring &text, const irr::video::SColor &color,
-		const irr::video::SColor &bgcolor);
+	void showTooltip(const std::wstring &text, const video::SColor &color,
+		const video::SColor &bgcolor);
+
+	/**
+	 * Auto-scrolls a scroll container to center the focused element.
+	 * Handles both vertical and horizontal scrolling.
+	 */
+	void autoScroll();
 
 	/**
 	 * In formspec version < 2 the elements were not ordered properly. Some element
@@ -471,6 +517,12 @@ private:
 
 	int m_btn_height;
 	gui::IGUIFont *m_font = nullptr;
+
+	// used by getAbsoluteRect
+	s32 m_tabheader_upper_edge = 0;
+
+	// Determines the size (in pixels) of formspec coordinate units.
+	double calculateImgsize(const parserData &data);
 };
 
 class FormspecFormSource: public IFormSource

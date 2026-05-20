@@ -1,119 +1,36 @@
-/*
-Minetest
-Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
-Copyright (C) 2010-2013 kwolekr, Ryan Kwolek <kwolekr@minetest.net>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
+// Copyright (C) 2010-2013 kwolekr, Ryan Kwolek <kwolekr@minetest.net>
 
 
-#include "emerge.h"
+#include "emerge_internal.h"
 
+#include <cmath>
 #include <iostream>
-#include <queue>
-
-#include "util/container.h"
-#include "util/thread.h"
-#include "threading/event.h"
-
 #include "config.h"
 #include "constants.h"
-#include "environment.h"
+#include "irrlicht_changes/printing.h"
+#include "filesys.h"
 #include "log.h"
-#include "map.h"
+#include "serverenvironment.h"
+#include "servermap.h"
 #include "mapblock.h"
 #include "mapgen/mg_biome.h"
 #include "mapgen/mg_ore.h"
 #include "mapgen/mg_decoration.h"
 #include "mapgen/mg_schematic.h"
-#include "nodedef.h"
+#include "porting.h"
 #include "profiler.h"
 #include "scripting_server.h"
+#include "scripting_emerge.h"
+#include "script/common/c_types.h" // LuaError
 #include "server.h"
 #include "settings.h"
 #include "voxel.h"
 
-class EmergeThread : public Thread {
-public:
-	bool enable_mapgen_debug_info;
-	int id;
-
-	EmergeThread(Server *server, int ethreadid);
-	~EmergeThread() = default;
-
-	void *run();
-	void signal();
-
-	// Requires queue mutex held
-	bool pushBlock(const v3s16 &pos);
-
-	void cancelPendingItems();
-
-protected:
-
-	void runCompletionCallbacks(
-		const v3s16 &pos, EmergeAction action,
-		const EmergeCallbackList &callbacks);
-
-private:
-	Server *m_server;
-	ServerMap *m_map;
-	EmergeManager *m_emerge;
-	Mapgen *m_mapgen;
-
-	Event m_queue_event;
-	std::queue<v3s16> m_block_queue;
-
-	bool popBlockEmerge(v3s16 *pos, BlockEmergeData *bedata);
-
-	EmergeAction getBlockOrStartGen(
-		const v3s16 &pos, bool allow_gen, MapBlock **block, BlockMakeData *data);
-	MapBlock *finishGen(v3s16 pos, BlockMakeData *bmdata,
-		std::map<v3s16, MapBlock *> *modified_blocks);
-
-	friend class EmergeManager;
-};
-
-class MapEditEventAreaIgnorer
-{
-public:
-	MapEditEventAreaIgnorer(VoxelArea *ignorevariable, const VoxelArea &a):
-		m_ignorevariable(ignorevariable)
-	{
-		if(m_ignorevariable->getVolume() == 0)
-			*m_ignorevariable = a;
-		else
-			m_ignorevariable = NULL;
-	}
-
-	~MapEditEventAreaIgnorer()
-	{
-		if(m_ignorevariable)
-		{
-			assert(m_ignorevariable->getVolume() != 0);
-			*m_ignorevariable = VoxelArea();
-		}
-	}
-
-private:
-	VoxelArea *m_ignorevariable;
-};
-
 EmergeParams::~EmergeParams()
 {
-	infostream << "EmergeParams: destroying " << this << std::endl;
 	// Delete everything that was cloned on creation of EmergeParams
 	delete biomegen;
 	delete biomemgr;
@@ -130,6 +47,7 @@ EmergeParams::EmergeParams(EmergeManager *parent, const BiomeGen *biomegen,
 	enable_mapgen_debug_info(parent->enable_mapgen_debug_info),
 	gen_notify_on(parent->gen_notify_on),
 	gen_notify_on_deco_ids(&parent->gen_notify_on_deco_ids),
+	gen_notify_on_custom(&parent->gen_notify_on_custom),
 	biomemgr(biomemgr->clone()), oremgr(oremgr->clone()),
 	decomgr(decomgr->clone()), schemmgr(schemmgr->clone())
 {
@@ -142,7 +60,9 @@ EmergeParams::EmergeParams(EmergeManager *parent, const BiomeGen *biomegen,
 
 EmergeManager::EmergeManager(Server *server, MetricsBackend *mb)
 {
-	this->ndef      = server->getNodeDefManager();
+	assert(server);
+	this->m_server  = server;
+	this->ndef      = server->ndef();
 	this->biomemgr  = new BiomeManager(server);
 	this->oremgr    = new OreManager(server);
 	this->decomgr   = new DecorationManager(server);
@@ -158,8 +78,8 @@ EmergeManager::EmergeManager(Server *server, MetricsBackend *mb)
 
 	enable_mapgen_debug_info = g_settings->getBool("enable_mapgen_debug_info");
 
-	STATIC_ASSERT(ARRLEN(emergeActionStrs) == ARRLEN(m_completed_emerge_counter),
-		enum_size_mismatches);
+	static_assert(ARRLEN(emergeActionStrs) == ARRLEN(m_completed_emerge_counter),
+		"enum size mismatches");
 	for (u32 i = 0; i < ARRLEN(m_completed_emerge_counter); i++) {
 		std::string help_str("Number of completed emerges with status ");
 		help_str.append(emergeActionStrs[i]);
@@ -169,31 +89,14 @@ EmergeManager::EmergeManager(Server *server, MetricsBackend *mb)
 		);
 	}
 
-	s16 nthreads = 1;
-	g_settings->getS16NoEx("num_emerge_threads", nthreads);
-	// If automatic, leave a proc for the main thread and one for
-	// some other misc thread
-	if (nthreads == 0)
-		nthreads = Thread::getNumberOfProcessors() - 2;
-	if (nthreads < 1)
-		nthreads = 1;
-
 	m_qlimit_total = g_settings->getU32("emergequeue_limit_total");
-	// FIXME: these fallback values are probably not good
-	if (!g_settings->getU32NoEx("emergequeue_limit_diskonly", m_qlimit_diskonly))
-		m_qlimit_diskonly = nthreads * 5 + 1;
-	if (!g_settings->getU32NoEx("emergequeue_limit_generate", m_qlimit_generate))
-		m_qlimit_generate = nthreads + 1;
+	m_qlimit_diskonly = g_settings->getU32("emergequeue_limit_diskonly");
+	m_qlimit_generate = g_settings->getU32("emergequeue_limit_generate");
 
 	// don't trust user input for something very important like this
-	m_qlimit_total = rangelim(m_qlimit_total, 1, 1000000);
-	m_qlimit_diskonly = rangelim(m_qlimit_diskonly, 1, 1000000);
+	m_qlimit_diskonly = rangelim(m_qlimit_diskonly, 2, 1000000);
 	m_qlimit_generate = rangelim(m_qlimit_generate, 1, 1000000);
-
-	for (s16 i = 0; i < nthreads; i++)
-		m_threads.push_back(new EmergeThread(server, i));
-
-	infostream << "EmergeManager: using " << nthreads << " threads" << std::endl;
+	m_qlimit_total = std::max(m_qlimit_total, std::max(m_qlimit_diskonly, m_qlimit_generate));
 }
 
 
@@ -251,25 +154,77 @@ SchematicManager *EmergeManager::getWritableSchematicManager()
 	return schemmgr;
 }
 
+void EmergeManager::initMap(MapDatabaseAccessor *holder)
+{
+	FATAL_ERROR_IF(m_db, "Map database already initialized.");
+	assert(holder->dbase);
+	m_db = holder;
+}
+
+void EmergeManager::resetMap()
+{
+	FATAL_ERROR_IF(m_threads_active, "Threads are still active.");
+	m_db = nullptr;
+}
 
 void EmergeManager::initMapgens(MapgenParams *params)
 {
-	FATAL_ERROR_IF(!m_mapgens.empty(), "Mapgen already initialised.");
+	FATAL_ERROR_IF(!m_mapgens.empty(), "Mapgen already initialized.");
 
 	mgparams = params;
 
-	v3s16 csize = v3s16(1, 1, 1) * (params->chunksize * MAP_BLOCKSIZE);
+	infostream << "EmergeManager: initializing for mapgen="
+		<< Mapgen::getMapgenName(params->mgtype)
+		<< " and chunksize=" << params->chunksize << std::endl;
+
+	/*
+	 * Singlenode is currently the only mapgen not affected by the
+	 * unfinished slice bug, so allow multiple threads by default.
+	 * We do this for the Lua mapgens who benefit from this (since singlenode
+	 * itself isn't very useful).
+	 * see <https://github.com/luanti-org/luanti/issues/9357>
+	 */
+	bool multithread = params->mgtype == MAPGEN_SINGLENODE;
+	initThreads(multithread);
+
+	v3s16 csize = params->chunksize * MAP_BLOCKSIZE;
 	biomegen = biomemgr->createBiomeGen(BIOMEGEN_ORIGINAL, params->bparams, csize);
 
 	for (u32 i = 0; i != m_threads.size(); i++) {
 		EmergeParams *p = new EmergeParams(this, biomegen,
 			biomemgr, oremgr, decomgr, schemmgr);
-		infostream << "EmergeManager: Created params " << p
-			<< " for thread " << i << std::endl;
 		m_mapgens.push_back(Mapgen::createMapgen(params->mgtype, params, p));
 	}
 }
 
+void EmergeManager::initThreads(bool should_multithread)
+{
+	s16 nthreads = g_settings->getS16("num_emerge_threads");
+	if (nthreads <= 0 && should_multithread) {
+		u32 concurrency = Thread::getNumberOfProcessors();
+		u32 memoryMB = porting::getMemorySizeMB();
+		if (memoryMB) {
+			// Cap threads according to total RAM with a conservative 1 GB per thread.
+			// This is for the sake of Android phones, where many cores & low RAM
+			// is not uncommon (e.g. 8C + 3GB).
+			concurrency = std::min<u32>(concurrency, std::roundf(memoryMB / 1024.0f));
+		}
+		// Leave 2 cores for main thread and whatever else.
+		nthreads = (concurrency > 2) ? (concurrency - 2) : 1;
+		// Testing has shown that more than 4 threads don't become any faster:
+		// <https://github.com/luanti-org/luanti/pull/16634>
+		// May have to be revisited after emerge code is refactored to be less
+		// lock heavy.
+		nthreads = std::min<s16>(4, nthreads);
+	}
+	nthreads = std::max<s16>(1, nthreads);
+
+	FATAL_ERROR_IF(!m_threads.empty(), "Threads already initialized.");
+	for (s16 i = 0; i < nthreads; i++)
+		m_threads.push_back(new EmergeThread(m_server, i));
+
+	infostream << "EmergeManager: using " << nthreads << " thread(s)" << std::endl;
+}
 
 Mapgen *EmergeManager::getCurrentMapgen()
 {
@@ -314,12 +269,6 @@ void EmergeManager::stopThreads()
 		m_threads[i]->wait();
 
 	m_threads_active = false;
-}
-
-
-bool EmergeManager::isRunning()
-{
-	return m_threads_active;
 }
 
 
@@ -369,6 +318,12 @@ bool EmergeManager::enqueueBlockEmergeEx(
 }
 
 
+size_t EmergeManager::getQueueSize()
+{
+	MutexAutoLock queuelock(m_queue_mutex);
+	return m_blocks_enqueued.size();
+}
+
 bool EmergeManager::isBlockInQueue(v3s16 pos)
 {
 	MutexAutoLock queuelock(m_queue_mutex);
@@ -381,11 +336,9 @@ bool EmergeManager::isBlockInQueue(v3s16 pos)
 //
 
 
-// TODO(hmmmm): Move this to ServerMap
-v3s16 EmergeManager::getContainingChunk(v3s16 blockpos, s16 chunksize)
+v3s16 EmergeManager::getContainingChunk(v3s16 blockpos, v3s16 chunksize)
 {
-	s16 coff = -chunksize / 2;
-	v3s16 chunk_offset(coff, coff, coff);
+	v3s16 chunk_offset = -chunksize / 2;
 
 	return getContainerPos(blockpos - chunk_offset, chunksize)
 		* chunksize + chunk_offset;
@@ -437,8 +390,7 @@ bool EmergeManager::pushBlockEmergeData(
 		}
 	}
 
-	std::pair<std::map<v3s16, BlockEmergeData>::iterator, bool> findres;
-	findres = m_blocks_enqueued.insert(std::make_pair(pos, BlockEmergeData()));
+	auto findres = m_blocks_enqueued.emplace(pos, BlockEmergeData());
 
 	BlockEmergeData &bedata = findres.first->second;
 	*entry_already_exists   = !findres.second;
@@ -504,7 +456,7 @@ EmergeThread *EmergeManager::getOptimalThread()
 
 void EmergeManager::reportCompletedEmerge(EmergeAction action)
 {
-	assert((int)action < ARRLEN(m_completed_emerge_counter));
+	assert((size_t)action < ARRLEN(m_completed_emerge_counter));
 	m_completed_emerge_counter[(int)action]->increment();
 }
 
@@ -517,9 +469,10 @@ EmergeThread::EmergeThread(Server *server, int ethreadid) :
 	enable_mapgen_debug_info(false),
 	id(ethreadid),
 	m_server(server),
-	m_map(NULL),
-	m_emerge(NULL),
-	m_mapgen(NULL)
+	m_map(nullptr),
+	m_emerge(nullptr),
+	m_mapgen(nullptr),
+	m_trans_liquid(nullptr)
 {
 	m_name = "Emerge-" + itos(ethreadid);
 }
@@ -531,7 +484,7 @@ void EmergeThread::signal()
 }
 
 
-bool EmergeThread::pushBlock(const v3s16 &pos)
+bool EmergeThread::pushBlock(v3s16 pos)
 {
 	m_block_queue.push(pos);
 	return true;
@@ -556,7 +509,7 @@ void EmergeThread::cancelPendingItems()
 }
 
 
-void EmergeThread::runCompletionCallbacks(const v3s16 &pos, EmergeAction action,
+void EmergeThread::runCompletionCallbacks(v3s16 pos, EmergeAction action,
 	const EmergeCallbackList &callbacks)
 {
 	m_emerge->reportCompletedEmerge(action);
@@ -589,21 +542,38 @@ bool EmergeThread::popBlockEmerge(v3s16 *pos, BlockEmergeData *bedata)
 }
 
 
-EmergeAction EmergeThread::getBlockOrStartGen(
-	const v3s16 &pos, bool allow_gen, MapBlock **block, BlockMakeData *bmdata)
+EmergeAction EmergeThread::getBlockOrStartGen(const v3s16 pos, bool allow_gen,
+	 const std::string *from_db, MapBlock **block, BlockMakeData *bmdata)
 {
-	MutexAutoLock envlock(m_server->m_env_mutex);
+	//TimeTaker tt("", nullptr, PRECISION_MICRO);
+	Server::EnvAutoLock envlock(m_server);
+	//g_profiler->avg("EmergeThread: lock wait time [us]", tt.stop());
+
+	auto block_ok = [] (MapBlock *b) {
+		return b && b->isGenerated();
+	};
 
 	// 1). Attempt to fetch block from memory
 	*block = m_map->getBlockNoCreateNoEx(pos);
-	if (*block && !(*block)->isDummy()) {
-		if ((*block)->isGenerated())
+	if (*block) {
+		if (block_ok(*block)) {
+			// if we just read it from the db but the block exists that means
+			// someone else was faster. don't touch it to prevent data loss.
+			if (from_db)
+				verbosestream << "getBlockOrStartGen: block loading raced" << std::endl;
 			return EMERGE_FROM_MEMORY;
+		}
 	} else {
-		// 2). Attempt to load block from disk if it was not in the memory
-		*block = m_map->loadBlock(pos);
-		if (*block && (*block)->isGenerated())
+		if (!from_db) {
+			// 2). We should attempt loading it
 			return EMERGE_FROM_DISK;
+		}
+		// 2). Second invocation, we have the data
+		if (!from_db->empty()) {
+			*block = m_map->loadBlock(*from_db, pos);
+			if (block_ok(*block))
+				return EMERGE_FROM_DISK;
+		}
 	}
 
 	// 3). Attempt to start generation
@@ -618,7 +588,7 @@ EmergeAction EmergeThread::getBlockOrStartGen(
 MapBlock *EmergeThread::finishGen(v3s16 pos, BlockMakeData *bmdata,
 	std::map<v3s16, MapBlock *> *modified_blocks)
 {
-	MutexAutoLock envlock(m_server->m_env_mutex);
+	Server::EnvAutoLock envlock(m_server);
 	ScopeProfiler sp(g_profiler,
 		"EmergeThread: after Mapgen::makeChunk", SPT_AVG);
 
@@ -626,12 +596,12 @@ MapBlock *EmergeThread::finishGen(v3s16 pos, BlockMakeData *bmdata,
 		Perform post-processing on blocks (invalidate lighting, queue liquid
 		transforms, etc.) to finish block make
 	*/
-	m_map->finishBlockMake(bmdata, modified_blocks);
+	m_map->finishBlockMake(bmdata, modified_blocks, m_server->m_env);
 
 	MapBlock *block = m_map->getBlockNoCreateNoEx(pos);
 	if (!block) {
 		errorstream << "EmergeThread::finishGen: Couldn't grab block we "
-			"just generated: " << PP(pos) << std::endl;
+			"just generated: " << pos << std::endl;
 		return NULL;
 	}
 
@@ -640,13 +610,13 @@ MapBlock *EmergeThread::finishGen(v3s16 pos, BlockMakeData *bmdata,
 				 v3s16(1,1,1) * (MAP_BLOCKSIZE - 1);
 
 	// Ignore map edit events, they will not need to be sent
-	// to anybody because the block hasn't been sent to anybody
+	// to anyone because the block hasn't been sent yet.
 	MapEditEventAreaIgnorer ign(
 		&m_server->m_ignore_map_edit_events_area,
 		VoxelArea(minp, maxp));
 
 	/*
-		Run Lua on_generated callbacks
+		Run Lua on_generated callbacks in the server environment
 	*/
 	try {
 		m_server->getScriptIface()->environment_OnGenerated(
@@ -664,12 +634,37 @@ MapBlock *EmergeThread::finishGen(v3s16 pos, BlockMakeData *bmdata,
 	m_mapgen->gennotify.clearEvents();
 	m_mapgen->vm = nullptr;
 
-	/*
-		Activate the block
-	*/
-	m_server->m_env->activateBlock(block, 0);
-
 	return block;
+}
+
+
+bool EmergeThread::initScripting()
+{
+	m_script = std::make_unique<EmergeScripting>(this);
+
+	try {
+		m_script->loadMod(Server::getBuiltinLuaPath() + DIR_DELIM + "init.lua",
+			BUILTIN_MOD_NAME);
+		m_script->checkSetByBuiltin();
+	} catch (const ModError &e) {
+		errorstream << "Execution of mapgen base environment failed." << std::endl;
+		m_server->setAsyncFatalError(e.what());
+		return false;
+	}
+
+	const auto &list = m_server->m_mapgen_init_files;
+	try {
+		for (auto &it : list)
+			m_script->loadMod(it.second, it.first);
+
+		m_script->on_mods_loaded();
+	} catch (const ModError &e) {
+		errorstream << "Failed to load mod script inside mapgen environment." << std::endl;
+		m_server->setAsyncFatalError(e.what());
+		return false;
+	}
+
+	return true;
 }
 
 
@@ -678,12 +673,18 @@ void *EmergeThread::run()
 	BEGIN_DEBUG_EXCEPTION_HANDLER
 
 	v3s16 pos;
-	std::map<v3s16, MapBlock *> modified_blocks;
+	std::map<v3s16, MapBlock*> modified_blocks;
+	std::string databuf;
 
 	m_map    = &m_server->m_env->getServerMap();
-	m_emerge = m_server->m_emerge;
+	m_emerge = m_server->getEmergeManager();
 	m_mapgen = m_emerge->m_mapgens[id];
 	enable_mapgen_debug_info = m_emerge->enable_mapgen_debug_info;
+
+	if (!initScripting()) {
+		m_script.reset();
+		stop(); // do not enter main loop
+	}
 
 	try {
 	while (!stopRequested()) {
@@ -692,19 +693,43 @@ void *EmergeThread::run()
 		EmergeAction action;
 		MapBlock *block = nullptr;
 
+		porting::TriggerMemoryTrim();
+
 		if (!popBlockEmerge(&pos, &bedata)) {
 			m_queue_event.wait();
 			continue;
 		}
 
+		g_profiler->add(m_name + ": processed [#]", 1);
+
 		if (blockpos_over_max_limit(pos))
 			continue;
 
 		bool allow_gen = bedata.flags & BLOCK_EMERGE_ALLOW_GEN;
-		EMERGE_DBG_OUT("pos=" PP(pos) " allow_gen=" << allow_gen);
+		EMERGE_DBG_OUT("pos=" << pos << " allow_gen=" << allow_gen);
 
-		action = getBlockOrStartGen(pos, allow_gen, &block, &bmdata);
+		action = getBlockOrStartGen(pos, allow_gen, nullptr, &block, &bmdata);
+
+		/* Try to load it */
+		if (action == EMERGE_FROM_DISK) {
+			auto &m_db = *m_emerge->m_db;
+			{
+				ScopeProfiler sp(g_profiler, "EmergeThread: load block - async (sum)");
+				MutexAutoLock dblock(m_db.mutex);
+				// Note: this can throw an exception, but there isn't really
+				// a good, safe way to handle it.
+				m_db.loadBlock(pos, databuf);
+			}
+			// actually load it, then decide again
+			action = getBlockOrStartGen(pos, allow_gen, &databuf, &block, &bmdata);
+			databuf.clear();
+		}
+
+		/* Generate it */
 		if (action == EMERGE_GENERATED) {
+			bool error = false;
+			m_trans_liquid = &bmdata.transforming_liquid;
+
 			{
 				ScopeProfiler sp(g_profiler,
 					"EmergeThread: Mapgen::makeChunk", SPT_AVG);
@@ -712,9 +737,26 @@ void *EmergeThread::run()
 				m_mapgen->makeChunk(&bmdata);
 			}
 
-			block = finishGen(pos, &bmdata, &modified_blocks);
-			if (!block)
+			{
+				ScopeProfiler sp(g_profiler,
+					"EmergeThread: Lua on_generated", SPT_AVG);
+
+				try {
+					m_script->on_generated(&bmdata, m_mapgen->blockseed);
+				} catch (const LuaError &e) {
+					m_server->setAsyncFatalError(e);
+					error = true;
+				}
+			}
+
+			if (!error)
+				block = finishGen(pos, &bmdata, &modified_blocks);
+			else
+				m_map->cancelBlockMake(&bmdata);
+			if (!block || error)
 				action = EMERGE_ERRORED;
+
+			m_trans_liquid = nullptr;
 		}
 
 		runCompletionCallbacks(pos, action, bedata.callbacks);
@@ -722,13 +764,18 @@ void *EmergeThread::run()
 		if (block)
 			modified_blocks[pos] = block;
 
-		if (!modified_blocks.empty())
-			m_server->SetBlocksNotSent(modified_blocks);
+		if (!modified_blocks.empty()) {
+			MapEditEvent event;
+			event.type = MEET_OTHER;
+			event.setModifiedBlocks(modified_blocks);
+			Server::EnvAutoLock envlock(m_server);
+			m_map->dispatchEvent(event);
+		}
 		modified_blocks.clear();
 	}
 	} catch (VersionMismatchException &e) {
 		std::ostringstream err;
-		err << "World data version mismatch in MapBlock " << PP(pos) << std::endl
+		err << "World data version mismatch in MapBlock " << pos << std::endl
 			<< "----" << std::endl
 			<< "\"" << e.what() << "\"" << std::endl
 			<< "See debug.txt." << std::endl
@@ -737,13 +784,21 @@ void *EmergeThread::run()
 		m_server->setAsyncFatalError(err.str());
 	} catch (SerializationError &e) {
 		std::ostringstream err;
-		err << "Invalid data in MapBlock " << PP(pos) << std::endl
+		err << "Invalid data in MapBlock " << pos << std::endl
 			<< "----" << std::endl
 			<< "\"" << e.what() << "\"" << std::endl
 			<< "See debug.txt." << std::endl
-			<< "You can ignore this using [ignore_world_load_errors = true]."
+			<< "This can be ignored using the `ignore_world_load_errors` setting. "
+			<< "But it will also destroy stuff in the affected MapBlocks, do not use."
 			<< std::endl;
 		m_server->setAsyncFatalError(err.str());
+	}
+
+	try {
+		if (m_script)
+			m_script->on_shutdown();
+	} catch (const ModError &e) {
+		m_server->setAsyncFatalError(e.what());
 	}
 
 	cancelPendingItems();

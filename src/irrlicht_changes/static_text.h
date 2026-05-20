@@ -1,35 +1,22 @@
 // Copyright (C) 2002-2012 Nikolaus Gebhardt
-// Copyright (C) 2016 Nathanaël Courant
+// Copyright (C) 2016 Nathanaëlle Courant
 //   Modified this class to work with EnrichedStrings too
 // This file is part of the "Irrlicht Engine".
 // For conditions of distribution and use, see copyright notice in irrlicht.h
 
 #pragma once
 
-#include "IrrCompileConfig.h"
-#ifdef _IRR_COMPILE_WITH_GUI_
-
 #include "IGUIStaticText.h"
-#include "irrArray.h"
-
-#include "log.h"
 
 #include <vector>
 
 #include "util/enriched_string.h"
-#include "config.h"
 #include <IGUIEnvironment.h>
 
 
-namespace irr
-{
-
 namespace gui
 {
-
-	const EGUI_ELEMENT_TYPE EGUIET_ENRICHED_STATIC_TEXT = (EGUI_ELEMENT_TYPE)(0x1000);
-
-	class StaticText : public IGUIStaticText
+	class StaticText final : public IGUIStaticText
 	{
 	public:
 
@@ -42,38 +29,18 @@ namespace gui
 		//! destructor
 		virtual ~StaticText();
 
-		static irr::gui::IGUIStaticText *add(
-			irr::gui::IGUIEnvironment *guienv,
+		static gui::IGUIStaticText *add(
+			gui::IGUIEnvironment *guienv,
 			const EnrichedString &text,
 			const core::rect< s32 > &rectangle,
 			bool border = false,
 			bool wordWrap = true,
-			irr::gui::IGUIElement *parent = NULL,
+			gui::IGUIElement *parent = NULL,
 			s32 id = -1,
 			bool fillBackground = false)
 		{
-			if (parent == NULL) {
-				// parent is NULL, so we must find one, or we need not to drop
-				// result, but then there will be a memory leak.
-				//
-				// What Irrlicht does is to use guienv as a parent, but the problem
-				// is that guienv is here only an IGUIEnvironment, while it is a
-				// CGUIEnvironment in Irrlicht, which inherits from both IGUIElement
-				// and IGUIEnvironment.
-				//
-				// A solution would be to dynamic_cast guienv to a
-				// IGUIElement*, but Irrlicht is shipped without rtti support
-				// in some distributions, causing the dymanic_cast to segfault.
-				//
-				// Thus, to find the parent, we create a dummy StaticText and ask
-				// for its parent, and then remove it.
-				irr::gui::IGUIStaticText *dummy_text =
-					guienv->addStaticText(L"", rectangle, border, wordWrap,
-						parent, id, fillBackground);
-				parent = dummy_text->getParent();
-				dummy_text->remove();
-			}
-			irr::gui::IGUIStaticText *result = new irr::gui::StaticText(
+			parent = parent ? parent : guienv->getRootGUIElement();
+			gui::IGUIStaticText *result = new gui::StaticText(
 				text, border, guienv, parent,
 				id, rectangle, fillBackground);
 
@@ -82,13 +49,13 @@ namespace gui
 			return result;
 		}
 
-		static irr::gui::IGUIStaticText *add(
-			irr::gui::IGUIEnvironment *guienv,
-			const wchar_t *text,
+		static gui::IGUIStaticText *add(
+			gui::IGUIEnvironment *guienv,
+			std::wstring_view text,
 			const core::rect< s32 > &rectangle,
 			bool border = false,
 			bool wordWrap = true,
-			irr::gui::IGUIElement *parent = NULL,
+			gui::IGUIElement *parent = NULL,
 			s32 id = -1,
 			bool fillBackground = false)
 		{
@@ -135,10 +102,8 @@ namespace gui
 		//! Gets the override color
 		virtual video::SColor getOverrideColor() const;
 
-		#if IRRLICHT_VERSION_MAJOR == 1 && IRRLICHT_VERSION_MINOR > 8
 		//! Gets the currently used text color
 		virtual video::SColor getActiveColor() const;
-		#endif
 
 		//! Sets if the static text should use the overide color or the
 		//! color in the gui skin.
@@ -187,10 +152,6 @@ namespace gui
 			return (t == EGUIET_ENRICHED_STATIC_TEXT) || (t == EGUIET_STATIC_TEXT);
 		};
 
-		virtual bool hasType(EGUI_ELEMENT_TYPE t) {
-			return (t == EGUIET_ENRICHED_STATIC_TEXT) || (t == EGUIET_STATIC_TEXT);
-		};
-
 		void setText(const EnrichedString &text);
 
 	private:
@@ -215,23 +176,19 @@ namespace gui
 
 } // end namespace gui
 
-} // end namespace irr
-
-inline void setStaticText(irr::gui::IGUIStaticText *static_text, const EnrichedString &text)
+inline void setStaticText(gui::IGUIStaticText *static_text, const EnrichedString &text)
 {
 	// dynamic_cast not possible due to some distributions shipped
 	// without rtti support in irrlicht
-	if (static_text->hasType(irr::gui::EGUIET_ENRICHED_STATIC_TEXT)) {
-		irr::gui::StaticText* stext = static_cast<irr::gui::StaticText*>(static_text);
+	if (static_text->hasType(gui::EGUIET_ENRICHED_STATIC_TEXT)) {
+		gui::StaticText* stext = static_cast<gui::StaticText*>(static_text);
 		stext->setText(text);
 	} else {
 		static_text->setText(text.c_str());
 	}
 }
 
-inline void setStaticText(irr::gui::IGUIStaticText *static_text, const wchar_t *text)
+inline void setStaticText(gui::IGUIStaticText *static_text, std::wstring_view text)
 {
 	setStaticText(static_text, EnrichedString(text, static_text->getOverrideColor()));
 }
-
-#endif // _IRR_COMPILE_WITH_GUI_
